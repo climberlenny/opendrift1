@@ -2591,6 +2591,7 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
                 lats = np.ma.array(np.reshape(self.elements_scheduled.lat, (1, -1))).T
         return lons, lats
 
+<<<<<<< HEAD
     def animation(
         self,
         buffer=0.2,
@@ -2631,6 +2632,46 @@ class OpenDriftSimulation(PhysicsMethods, Timeable, Configurable):
         frames=None,
         **kwargs,
     ):
+=======
+    def animation(self,
+                  buffer=.2,
+                  corners=None,
+                  filename=None,
+                  compare=None,
+                  compare_marker='o',
+                  background=None,
+                  bgalpha=.5,
+                  vmin=None,
+                  vmax=None,
+                  drifter=None,
+                  shapefiles=None,
+                  skip=None,
+                  scale=None,
+                  color=False,
+                  clabel=None,
+                  colorbar=True,
+                  cmap=None,
+                  density=False,
+                  show_elements=True,
+                  show_trajectories=False,
+                  trajectory_alpha=.1,
+                  hide_landmask=False,
+                  density_pixelsize_m=1000,
+                  unitfactor=1,
+                  lcs=None,
+                  surface_only=False,
+                  markersize=20,
+                  origin_marker=None,
+                  legend=None,
+                  legend_loc='best',
+                  title='auto',
+                  fps=8,
+                  lscale=None,
+                  fast=False,
+                  blit=False,
+                  frames=None,
+                  **kwargs):
+>>>>>>> 303c8ec27bfb5da0e1b4923a27009fee9bc53866
         """Animate last run."""
 
         filename = str(filename) if filename is not None else None
