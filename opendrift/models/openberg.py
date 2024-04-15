@@ -124,19 +124,6 @@ class OpenBerg(OceanDrift):
 
         # See ACCIBERG presentation
         # https://docs.google.com/presentation/d/1O5C2v7PA3PW8a93IAGU-aS6BSKt3s-Fw/edit#slide=id.p1
-        # k1 = (
-        #     rho_air
-        #     * self.elements.wind_drag_coeff
-        #     * Aa
-        #     / (rho_water * self.elements.water_drag_coeff * Ao)
-        # )
-        # k2 = (
-        #     C_wave
-        #     * g
-        #     * self.environment.sea_surface_wave_significant_height
-        #     ** 2(self.elements.water_drag_coeff * abs(self.elements.draft))
-        # )
-
         k = (
             rho_air
             * self.elements.wind_drag_coeff
@@ -145,32 +132,6 @@ class OpenBerg(OceanDrift):
         )
         # wind_velocity = np.sqrt(self.environment.x_wind**2 + self.environment.y_wind**2)
         f = np.sqrt(k) / (1 + np.sqrt(k))
-        # vx = (
-        #     self.environment.x_sea_water_velocity
-        #     - k1 * self.environment.x_wind
-        #     + np.sqrt(
-        #         k1(
-        #             (self.environment.x_wind - self.environment.x_sea_water_velocity)
-        #             ** 2
-        #             - k2 * self.environment.x_wind / wind_velocity
-        #         )
-        #         + k2 * self.environment.x_wind
-        #     )
-        #     / (1 - k1)
-        # )
-        # vy = (
-        #     self.environment.y_sea_water_velocity
-        #     - k1 * self.environment.y_wind
-        #     + np.sqrt(
-        #         k1(
-        #             (self.environment.y_wind - self.environment.y_sea_water_velocity)
-        #             ** 2
-        #             - k2 * self.environment.y_wind / wind_velocity
-        #         )
-        #         + k2 * self.environment.y_wind
-        #     )
-        #     / (1 - k1)
-        # )
 
         vx = (
             1 - f
