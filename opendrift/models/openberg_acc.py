@@ -107,14 +107,17 @@ class IcebergDrift(OceanDrift):
     }
 
     # Configuration
-    def __init__(self, wave_model, *args, **kwargs):
-        """3 wave models : with Stokes drift only = SD, with Radiation Force only = RF, with both = SDRF"""
+    def __init__(self, wave_model=None, correction=True, *args, **kwargs):
+        """3 wave models : with Stokes drift only = SD, with Radiation Force only = RF, with both = SDRF
+        Apply correction when the estimated speed with the acceleration method is too big it replaces the speed by the one determinated by the no acc method
+        """
         # Read Iceberg properties from external file ### will be added later
 
         # The constructor of parent class must always be called
         # to perform some necessary common initialisation tasks:
         super(IcebergDrift, self).__init__(*args, **kwargs)
         self.wave_model = wave_model
+        self.correction = correction
 
     ########################################################################################
 
@@ -223,7 +226,10 @@ class IcebergDrift(OceanDrift):
 
         # Update velocities with Eulerian sheme with the Total Forces
         x_vel_tot = x_vel + dt / mass * (F_ocean_x + F_wind_x)
-        no_acc_model = (1 - f) * vxo + f * vxa
+        if self.correction:
+            no_acc_model = (1 - f) * vxo + f * vxa
+        else:
+            no_acc_model = x_vel_tot
         try:
             x_vel_tot[np.where(x_vel_tot >= 0)] = 0.5 * (
                 x_vel_tot + no_acc_model - np.abs(x_vel_tot - no_acc_model)
@@ -239,7 +245,10 @@ class IcebergDrift(OceanDrift):
         x_vel_tot = x_vel_tot + dt / mass * (F_wave_x)
 
         y_vel_tot = y_vel + dt / mass * (F_ocean_y + F_wind_y + F_wave_y)
-        no_acc_model = (1 - f) * vyo + f * vya
+        if self.correction:
+            no_acc_model = (1 - f) * vyo + f * vya
+        else:
+            no_acc_model = y_vel_tot
         try:
             y_vel_tot[np.where(y_vel_tot >= 0)] = 0.5 * (
                 y_vel_tot + no_acc_model - np.abs(y_vel_tot - no_acc_model)
