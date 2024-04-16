@@ -225,7 +225,7 @@ class IcebergDrift(OceanDrift):
         )
 
         # Update velocities with Eulerian sheme with the Total Forces
-        x_vel_tot = x_vel + dt / mass * (F_ocean_x + F_wind_x)
+        x_vel_tot = x_vel + dt / mass * (F_ocean_x + F_wind_x)  # KFD advect scheme
         if self.correction:
             no_acc_model = (1 - f) * vxo + f * vxa
         else:
