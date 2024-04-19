@@ -123,153 +123,155 @@ class IcebergDrift(OceanDrift):
 
     def update(self):
         """Update positions and properties of particles"""
-        # Constants
-        rho_water = 1027
-        rho_air = 1.293
-        rho_ice = 917
-        rho_iceb = 900
-        wave_drag_coef = 0.3
-        g = 9.81
+        # # Constants
+        # rho_water = 1027
+        # rho_air = 1.293
+        # rho_ice = 917
+        # rho_iceb = 900
+        # wave_drag_coef = 0.3
+        # g = 9.81
 
-        # Areas exposed
-        Ao = abs(self.elements.draft) * self.elements.length  ### Area_wet
-        Aa = self.elements.sail * self.elements.length  ### Area_dry
+        # # Areas exposed
+        # Ao = abs(self.elements.draft) * self.elements.length  ### Area_wet
+        # Aa = self.elements.sail * self.elements.length  ### Area_dry
 
-        mass = self.elements.width * (Aa + Ao) * rho_iceb  # volume * rho,  [kg]
-        dt = self.elements.derivation_timestep
-        k = (
-            rho_air
-            * self.elements.wind_drag_coeff
-            * Aa
-            / (rho_water * self.elements.water_drag_coeff * Ao)
-        )
-        f = np.sqrt(k) / (1 + np.sqrt(k))
+        # mass = self.elements.width * (Aa + Ao) * rho_iceb  # volume * rho,  [kg]
+        # dt = self.elements.derivation_timestep
+        # k = (
+        #     rho_air
+        #     * self.elements.wind_drag_coeff
+        #     * Aa
+        #     / (rho_water * self.elements.water_drag_coeff * Ao)
+        # )
+        # f = np.sqrt(k) / (1 + np.sqrt(k))
 
-        vxo = self.environment.x_sea_water_velocity
-        vyo = self.environment.y_sea_water_velocity
-        x_stokes_drift = self.environment.sea_surface_wave_stokes_drift_x_velocity
-        y_stokes_drift = self.environment.sea_surface_wave_stokes_drift_y_velocity
-        if self.wave_model in ["SD", "SDRF"]:
-            vxo = vxo + x_stokes_drift
-            vyo = vyo + y_stokes_drift
+        # vxo = self.environment.x_sea_water_velocity
+        # vyo = self.environment.y_sea_water_velocity
+        # x_stokes_drift = self.environment.sea_surface_wave_stokes_drift_x_velocity
+        # y_stokes_drift = self.environment.sea_surface_wave_stokes_drift_y_velocity
+        # if self.wave_model in ["SD", "SDRF"]:
+        #     vxo = vxo + x_stokes_drift
+        #     vyo = vyo + y_stokes_drift
 
-        vxa = self.environment.x_wind
-        vya = self.environment.y_wind
+        # vxa = self.environment.x_wind
+        # vya = self.environment.y_wind
 
-        x_vel = self.elements.x_vel
-        y_vel = self.elements.y_vel
+        # x_vel = self.elements.x_vel
+        # y_vel = self.elements.y_vel
 
-        rel_water_x_vel = vxo - x_vel
-        rel_water_y_vel = vyo - y_vel
-        rel_water_norm = np.sqrt(rel_water_x_vel**2 + rel_water_y_vel**2)
+        # rel_water_x_vel = vxo - x_vel
+        # rel_water_y_vel = vyo - y_vel
+        # rel_water_norm = np.sqrt(rel_water_x_vel**2 + rel_water_y_vel**2)
 
-        rel_wind_x_vel = vxa - x_vel
-        rel_wind_y_vel = vya - y_vel
-        rel_wind_norm = np.sqrt(rel_wind_x_vel**2 + rel_wind_y_vel**2)
+        # rel_wind_x_vel = vxa - x_vel
+        # rel_wind_y_vel = vya - y_vel
+        # rel_wind_norm = np.sqrt(rel_wind_x_vel**2 + rel_wind_y_vel**2)
 
-        # Ocean
-        F_ocean_x = (
-            0.5
-            * rho_water
-            * self.elements.water_drag_coeff
-            * Ao
-            * rel_water_norm
-            * rel_water_x_vel
-        )
-        F_ocean_y = (
-            0.5
-            * rho_water
-            * self.elements.water_drag_coeff
-            * Ao
-            * rel_water_norm
-            * rel_water_y_vel
-        )
+        # # Ocean
+        # F_ocean_x = (
+        #     0.5
+        #     * rho_water
+        #     * self.elements.water_drag_coeff
+        #     * Ao
+        #     * rel_water_norm
+        #     * rel_water_x_vel
+        # )
+        # F_ocean_y = (
+        #     0.5
+        #     * rho_water
+        #     * self.elements.water_drag_coeff
+        #     * Ao
+        #     * rel_water_norm
+        #     * rel_water_y_vel
+        # )
 
-        # Wind
-        F_wind_x = (
-            0.5
-            * rho_air
-            * self.elements.wind_drag_coeff
-            * Aa
-            * rel_wind_norm
-            * rel_wind_x_vel
-        )
-        F_wind_y = (
-            0.5
-            * rho_air
-            * self.elements.wind_drag_coeff
-            * Aa
-            * rel_wind_norm
-            * rel_wind_y_vel
-        )
+        # # Wind
+        # F_wind_x = (
+        #     0.5
+        #     * rho_air
+        #     * self.elements.wind_drag_coeff
+        #     * Aa
+        #     * rel_wind_norm
+        #     * rel_wind_x_vel
+        # )
+        # F_wind_y = (
+        #     0.5
+        #     * rho_air
+        #     * self.elements.wind_drag_coeff
+        #     * Aa
+        #     * rel_wind_norm
+        #     * rel_wind_y_vel
+        # )
 
-        # Waves
-        with_waves = self.wave_model in ["RF", "SDRF"]
-        F_wave_x = int(with_waves) * (
-            0.5
-            * rho_water
-            * wave_drag_coef
-            * g
-            * self.elements.length
-            * (self.environment.sea_surface_wave_significant_height / 2) ** 2
-            * np.sin(np.deg2rad(self.environment.sea_surface_wave_from_direction))
-        )
-        F_wave_y = int(with_waves) * (
-            0.5
-            * rho_water
-            * wave_drag_coef
-            * g
-            * self.elements.length
-            * (self.environment.sea_surface_wave_significant_height / 2) ** 2
-            * np.cos(np.deg2rad(self.environment.sea_surface_wave_from_direction))
-        )
+        # # Waves
+        # with_waves = self.wave_model in ["RF", "SDRF"]
+        # F_wave_x = int(with_waves) * (
+        #     0.5
+        #     * rho_water
+        #     * wave_drag_coef
+        #     * g
+        #     * self.elements.length
+        #     * (self.environment.sea_surface_wave_significant_height / 2) ** 2
+        #     * np.sin(np.deg2rad(self.environment.sea_surface_wave_from_direction))
+        # )
+        # F_wave_y = int(with_waves) * (
+        #     0.5
+        #     * rho_water
+        #     * wave_drag_coef
+        #     * g
+        #     * self.elements.length
+        #     * (self.environment.sea_surface_wave_significant_height / 2) ** 2
+        #     * np.cos(np.deg2rad(self.environment.sea_surface_wave_from_direction))
+        # )
 
-        # Update velocities with Eulerian sheme with the Total Forces
-        x_vel_tot = x_vel + dt / mass * (F_ocean_x + F_wind_x)  # KFD advect scheme
-        if self.correction:
-            no_acc_model = (1 - f) * vxo + f * vxa
-        else:
-            no_acc_model = x_vel_tot
-        try:
-            x_vel_tot[np.where(x_vel_tot >= 0)] = 0.5 * (
-                x_vel_tot + no_acc_model - np.abs(x_vel_tot - no_acc_model)
-            )  # min stability
-        except ValueError:
-            pass
-        try:
-            x_vel_tot[np.where(x_vel_tot < 0)] = 0.5 * (
-                x_vel_tot + no_acc_model + np.abs(x_vel_tot - no_acc_model)
-            )  # max
-        except ValueError:
-            pass
-        x_vel_tot = x_vel_tot + dt / mass * (F_wave_x)
+        self.advect_iceberg()
 
-        y_vel_tot = y_vel + dt / mass * (F_ocean_y + F_wind_y + F_wave_y)
-        if self.correction:
-            no_acc_model = (1 - f) * vyo + f * vya
-        else:
-            no_acc_model = y_vel_tot
-        try:
-            y_vel_tot[np.where(y_vel_tot >= 0)] = 0.5 * (
-                y_vel_tot + no_acc_model - np.abs(y_vel_tot - no_acc_model)
-            )  # min stability
-        except ValueError:
-            pass
-        try:
-            y_vel_tot[np.where(y_vel_tot < 0)] = 0.5 * (
-                y_vel_tot + no_acc_model + np.abs(y_vel_tot - no_acc_model)
-            )  # max
-        except ValueError:
-            pass
-        y_vel_tot = y_vel_tot + dt / mass * (F_wave_y)
+        # # Update velocities with Eulerian sheme with the Total Forces
+        # x_vel_tot = x_vel + dt / mass * (F_ocean_x + F_wind_x)  # KFD advect scheme
+        # if self.correction:
+        #     no_acc_model = (1 - f) * vxo + f * vxa
+        # else:
+        #     no_acc_model = x_vel_tot
+        # try:
+        #     x_vel_tot[np.where(x_vel_tot >= 0)] = 0.5 * (
+        #         x_vel_tot + no_acc_model - np.abs(x_vel_tot - no_acc_model)
+        #     )  # min stability
+        # except ValueError:
+        #     pass
+        # try:
+        #     x_vel_tot[np.where(x_vel_tot < 0)] = 0.5 * (
+        #         x_vel_tot + no_acc_model + np.abs(x_vel_tot - no_acc_model)
+        #     )  # max
+        # except ValueError:
+        #     pass
+        # x_vel_tot = x_vel_tot + dt / mass * (F_wave_x)
 
-        tot_vel = np.sqrt(x_vel_tot**2 + y_vel_tot**2)
-        if np.any(tot_vel > 2):
-            logger.warning(f"iceberg speed too important : {np.max(tot_vel)}")
+        # y_vel_tot = y_vel + dt / mass * (F_ocean_y + F_wind_y + F_wave_y)
+        # if self.correction:
+        #     no_acc_model = (1 - f) * vyo + f * vya
+        # else:
+        #     no_acc_model = y_vel_tot
+        # try:
+        #     y_vel_tot[np.where(y_vel_tot >= 0)] = 0.5 * (
+        #         y_vel_tot + no_acc_model - np.abs(y_vel_tot - no_acc_model)
+        #     )  # min stability
+        # except ValueError:
+        #     pass
+        # try:
+        #     y_vel_tot[np.where(y_vel_tot < 0)] = 0.5 * (
+        #         y_vel_tot + no_acc_model + np.abs(y_vel_tot - no_acc_model)
+        #     )  # max
+        # except ValueError:
+        #     pass
+        # y_vel_tot = y_vel_tot + dt / mass * (F_wave_y)
 
-        self.elements.x_vel = x_vel_tot
-        self.elements.y_vel = y_vel_tot
-        self.update_positions(x_vel_tot, y_vel_tot)
+        # tot_vel = np.sqrt(x_vel_tot**2 + y_vel_tot**2)
+        # if np.any(tot_vel > 2):
+        #     logger.warning(f"iceberg speed too important : {np.max(tot_vel)}")
+
+        # self.elements.x_vel = x_vel_tot
+        # self.elements.y_vel = y_vel_tot
+        # self.update_positions(x_vel_tot, y_vel_tot)
 
         # Grounding
         self.deactivate_elements(
