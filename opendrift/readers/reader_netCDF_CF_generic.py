@@ -434,7 +434,7 @@ class Reader(StructuredReader, BaseReader):
                 np.maximum(0, indices.min() - self.verticalbuffer),
                 np.minimum(
                     len(self.z), indices.max() + self.verticalbuffer
-                ),  # check we removed -1 +1
+                ),  # LH : check, we removed -1 +1
             )
             if len(indz) == 1:
                 indz = indz[0]  # Extract integer to read only one layer

@@ -83,7 +83,9 @@ class IcebergObj(Lagrangian3DArray):
     )
 
 
-########################################################################################
+# FORCING #######################################################################################
+
+
 def water_drag(t, iceb_vel, water_vel, Ao, rho_water, water_drag_coef):
     # water velocity
     vxo, vyo = water_vel[0], water_vel[1]
@@ -162,6 +164,9 @@ def advect_iceberg_no_acc(f, water_vel, wind_vel):
     no_acc_model_x = (1 - f) * vxo + f * vxa
     no_acc_model_y = (1 - f) * vyo + f * vya
     return np.array([no_acc_model_x, no_acc_model_y])
+
+
+# TODO sea ice
 
 
 # MELTING ###################################################################
@@ -277,6 +282,53 @@ def melbas(depthib, sailib, lib, salnib, tempib, uoib, voib, uib, vib, dt):
     return new_depthib, new_sailib
 
 
+def is_grounded(
+    grounded: bool,
+    hwall: float,
+    draft: float,
+    water_depth: float,
+    g: float,
+    rhoib: float,
+    rho_water: float,
+    lib: float,
+    wib: float,
+    hib: float,
+    ax: float,
+    ay: float,
+):
+    """do Not use
+
+    Args:
+        grounded (bool): status if the iceberg is initially grounded
+        draft (float): under water part of the iceberg
+        water_depth (float): depth of the sea floor
+        rhoib (float): iceberg volumic mass
+        rho_water (float): sea water volumic mass
+        lib (float): iceberg length
+        wib (float): iceberg width
+        hib (float): iceberg total height
+        Fib (float): norm of total force applied on the iceberg
+
+    Returns:
+        tuple: (ax, ay)
+    """
+    if grounded:
+        mass = rhoib * lib * wib * hib
+        Fib = mass * np.sqrt(ax**2 + ay**2)
+        mu = 0.5  # Static friction, Friction coeff taken from Barker and Timco(2003)
+        Fp = rhoib * g * lib * wib * (hib - rho_water / rhoib * water_depth)
+        if np.logical_and(Fib > mu * Fp, hwall < 2):  # static criteria
+            mu = 0.35  # Dynamic friction, Friction coeff taken from Barker and Timco(2003)
+            diff = Fib - mu * Fp  # the iceberg is moving --> dynamic friction coef
+            ax = ax * diff / Fib
+            ay = ay * diff / Fib
+            return (ax, ay)  # grounded but moving
+        else:
+            return (0, 0)  # grounded and motionless
+    else:
+        return (ax, ay)  # not grounded
+
+
 class IcebergDrift(OceanDrift):
 
     ElementType = IcebergObj
@@ -302,10 +354,16 @@ class IcebergDrift(OceanDrift):
     }
 
     # Configuration
-    def __init__(self, with_stokes_drift=True, wave_rad=True, *args, **kwargs):
-        """3 wave models : with Stokes drift only = SD, with Radiation Force only = RF, with both = SDRF
-        Apply correction when the estimated speed with the acceleration method is too big it replaces the speed by the one determinated by the no acc method
-        """
+    def __init__(
+        self,
+        with_stokes_drift=True,
+        wave_rad=True,
+        grounding=False,
+        water_profile=False,
+        *args,
+        **kwargs,
+    ):
+
         # Read Iceberg properties from external file ### will be added later
 
         # The constructor of parent class must always be called
@@ -313,8 +371,12 @@ class IcebergDrift(OceanDrift):
         super(IcebergDrift, self).__init__(*args, **kwargs)
         self.wave_rad = wave_rad
         self.with_stokes_drift = with_stokes_drift
+        self.grounding = grounding
+        self.water_profile = water_profile
 
-    def advect_iceberg(self, stokes_drift=True, wave_rad=True):
+    def advect_iceberg(
+        self, stokes_drift=True, wave_rad=True, grounding=False, water_profile=False
+    ):
 
         # Constants
         rho_water = 1027
@@ -322,8 +384,11 @@ class IcebergDrift(OceanDrift):
         rho_iceb = 900
         wave_drag_coef = 0.3
         g = 9.81
-        Ao = abs(self.elements.draft) * self.elements.length  ### Area_wet
-        Aa = self.elements.sail * self.elements.length  ### Area_dry
+        draft = self.elements.draft
+        height = self.elements.sail + draft
+        length = self.elements.length
+        Ao = abs(draft) * length  ### Area_wet
+        Aa = self.elements.sail * length  ### Area_dry
         mass = self.elements.width * (Aa + Ao) * rho_iceb  # volume * rho,  [kg]
         k = (
             rho_air
@@ -334,16 +399,47 @@ class IcebergDrift(OceanDrift):
         f = np.sqrt(k) / (1 + np.sqrt(k))
 
         # environment
-        water_vel = np.array(
-            [
-                self.environment.x_sea_water_velocity
-                + int(stokes_drift)
-                * self.environment.sea_surface_wave_stokes_drift_x_velocity,
-                self.environment.y_sea_water_velocity
-                + int(stokes_drift)
-                * self.environment.sea_surface_wave_stokes_drift_y_velocity,
-            ]
-        )
+        if not water_profile:
+            water_vel = np.array(
+                [
+                    self.environment.x_sea_water_velocity
+                    + int(stokes_drift)
+                    * self.environment.sea_surface_wave_stokes_drift_x_velocity,
+                    self.environment.y_sea_water_velocity
+                    + int(stokes_drift)
+                    * self.environment.sea_surface_wave_stokes_drift_y_velocity,
+                ]
+            )
+        else:
+            # Make the average current that covers the Iceberg's draft
+            uprof = self.environment_profiles[
+                "x_sea_water_velocity"
+            ]  # Achref can you check the profile please the current is  changing direction completly
+            vprof = self.environment_profiles["y_sea_water_velocity"]
+            z = self.environment_profiles["z"]
+            thickness = -(z[1:] - z[:-1])
+            mask = draft < -z
+            mask[np.argmax(mask)] = False
+            # print(z[np.logical_not(mask)], draft)
+            uprof_mean_inter = (uprof[1:] + uprof[:-1]) / 2
+            vprof_mean_inter = (vprof[1:] + vprof[:-1]) / 2
+            mask = mask[:-1]
+            uprof_mean_inter[mask] = np.nan
+            vprof_mean_inter[mask] = np.nan
+            # uprof_avg = np.mean(uprof, axis=0)
+            # vprof_avg = np.mean(vprof, axis=0)
+            thickness_reshaped = np.expand_dims(thickness, axis=1)
+            thickness_reshaped[mask] = np.nan
+            # print(np.nansum(thickness_reshaped * uprof_mean_inter, axis=0))
+            umean = np.nansum(
+                thickness_reshaped * uprof_mean_inter, axis=0
+            ) / np.nansum(thickness_reshaped, axis=0)
+            vmean = np.nansum(
+                thickness_reshaped * vprof_mean_inter, axis=0
+            ) / np.nansum(thickness_reshaped, axis=0)
+            # print(umean)
+            water_vel = np.array([umean, vmean])
+        water_depth = self.environment.sea_floor_depth_below_sea_level
         wind_vel = np.array([self.environment.x_wind, self.environment.y_wind])
         wave_height = self.environment.sea_surface_wave_significant_height
         wave_direction = self.environment.sea_surface_wave_from_direction
@@ -384,6 +480,94 @@ class IcebergDrift(OceanDrift):
             return 1 / mass * sum_force
 
         V0 = advect_iceberg_no_acc(f, water_vel, wind_vel).flatten()
+
+        hwall = draft - water_depth
+        grounded = hwall >= 0
+        if any(grounded) and grounding:
+            logger.info(f"Grounding : hwall={np.round(hwall,3)}m")
+
+            # def dynamic(
+            #     t,
+            #     V,
+            #     water_vel,
+            #     wind_vel,
+            #     wave_height,
+            #     wave_direction,
+            #     water_depth,
+            #     Ao,
+            #     Aa,
+            #     draft,
+            #     length,
+            #     width,
+            #     height,
+            #     rho_water,
+            #     rho_air,
+            #     water_drag_coef,
+            #     wind_drag_coef,
+            #     wave_drag_coef,
+            #     g,
+            #     mass,
+            # ):
+            #     sum_force = (
+            #         water_drag(t, V, water_vel, Ao, rho_water, water_drag_coef)
+            #         + wind_drag(t, V, wind_vel, Aa, rho_air, wind_drag_coef)
+            #         + int(wave_rad)
+            #         * wave_radiation_force(
+            #             t,
+            #             V,
+            #             rho_water,
+            #             wave_drag_coef,
+            #             g,
+            #             wave_height,
+            #             wave_direction,
+            #             length,
+            #         )
+            #     )
+            #     ax, ay = is_grounded(
+            #         grounded,
+            #         hwall,
+            #         draft,
+            #         water_depth,
+            #         g,
+            #         rho_iceb,
+            #         rho_water,
+            #         length,
+            #         width,
+            #         height,
+            #         sum_force[0] / mass,
+            #         sum_force[1] / mass,
+            #     )
+            #     return np.array([ax, ay])
+
+            # V0 = V0 * 0  #  We suppose that the iceberg will stop if is grounded
+            # sol = solve_ivp(
+            #     dynamic,
+            #     [0, self.time_step.total_seconds()],
+            #     V0,
+            #     args=(
+            #         water_vel,
+            #         wind_vel,
+            #         wave_height,
+            #         wave_direction,
+            #         water_depth,
+            #         Ao,
+            #         Aa,
+            #         draft,
+            #         length,
+            #         self.elements.width,
+            #         height,
+            #         rho_water,
+            #         rho_air,
+            #         self.elements.water_drag_coeff,
+            #         self.elements.wind_drag_coeff,
+            #         wave_drag_coef,
+            #         g,
+            #         mass,
+            #     ),
+            #     vectorized=True,
+            #     t_eval=np.array([self.time_step.total_seconds()]),
+            # )
+
         sol = solve_ivp(
             dynamic,
             [0, self.time_step.total_seconds()],
@@ -409,6 +593,8 @@ class IcebergDrift(OceanDrift):
         )
         V = sol.y.reshape((2, -1))
         Vx, Vy = V[0], V[1]
+        Vx[grounded] = 0
+        Vy[grounded] = 0
         self.update_positions(Vx, Vy)
         self.elements.iceb_x_velocity, self.elements.iceb_y_velocity = Vx, Vy
 
@@ -454,18 +640,48 @@ class IcebergDrift(OceanDrift):
             self.time_step.total_seconds(),
         )
 
+    def roll_over(self, rho_water):
+        L = self.elements.length
+        W = self.elements.width
+        H = self.elements.draft + self.elements.sail
+        rho_iceb = 900
+        alpha = rho_iceb / rho_water
+        crit = np.sqrt(6 * alpha * (1 - alpha))
+        W, L = np.min([L, W], axis=0), np.max([L, W], axis=0)
+        mask = (W / H) < crit
+        if any(mask):
+            logger.info("Rolling over")
+            nL, nW, nH = (
+                np.max([L[mask], H[mask]], axis=0),
+                np.min([L[mask], H[mask]], axis=0),
+                W[mask],
+            )
+            L[mask], W[mask], H[mask] = nL, nW, nH
+        depthib = H * alpha
+        sailib = H - depthib
+        self.elements.length = L
+        self.elements.width = W
+        self.elements.sail = sailib
+        self.elements.draft = depthib
+
     def prepare_run(self):
         self.profiles_depth = self.elements_scheduled.draft.max()
+        # TODO draft inter
         logger.info(f"Max Icebergs draft is : {self.profiles_depth}")
 
     def update(self):
         """Update positions and properties of particles"""
-
-        self.advect_iceberg(self.with_stokes_drift, self.wave_rad)
+        T = self.environment.sea_water_temperature
+        S = self.environment.sea_water_salinity
+        rho_water = PhysicsMethods.sea_water_density(T, S)
+        self.roll_over(rho_water)
         self.melt()
-
-        # Grounding
-        self.deactivate_elements(
-            self.elements.draft > self.environment.sea_floor_depth_below_sea_level,
-            reason="Grounded iceberg",
+        self.advect_iceberg(
+            self.with_stokes_drift, self.wave_rad, self.grounding, self.water_profile
         )
+
+        # # Grounding
+        # self.deactivate_elements(
+        #     self.elements.draft > self.environment.sea_floor_depth_below_sea_level,
+        #     reason="Grounded iceberg",
+        # )
