@@ -353,6 +353,20 @@ class IcebergDrift(OceanDrift):
         "land_binary_mask": {"fallback": None},
     }
 
+    def get_profile_masked(self, variable):
+        """mask profile such that we keep the data only for the iceberg draft
+
+        Args:
+            variable (_type_): _description_
+        """
+        draft = self.elements.draft
+        profile = self.environment_profiles[variable]
+        z = self.environment_profiles["z"]
+        mask = draft[:, np.newaxis] < -z
+        mask = mask.T
+        mask[np.argmax(mask, axis=0), np.arange(mask.shape[1])] = False
+        return np.ma.masked_array(profile, mask, fill_value=np.nan)
+
     # Configuration
     def __init__(
         self,
@@ -412,23 +426,22 @@ class IcebergDrift(OceanDrift):
             )
         else:
             # Make the average current that covers the Iceberg's draft
-            uprof = self.environment_profiles[
-                "x_sea_water_velocity"
-            ]  # Achref can you check the profile please the current is  changing direction completly
-            vprof = self.environment_profiles["y_sea_water_velocity"]
+            # uprof = self.environment_profiles[
+            #     "x_sea_water_velocity"
+            # ]
+            # vprof = self.environment_profiles["y_sea_water_velocity"]
+            uprof = self.get_profile_masked("x_sea_water_velocity")
+            vprof = self.get_profile_masked("y_sea_water_velocity")
             z = self.environment_profiles["z"]
-            thickness = -(z[1:] - z[:-1])
-            mask = draft < -z
-            mask[np.argmax(mask)] = False
+            thickness = -(z[1:] - z[:-1]).reshape((-1, 1))
+            mask = uprof.mask
             # print(z[np.logical_not(mask)], draft)
             uprof_mean_inter = (uprof[1:] + uprof[:-1]) / 2
             vprof_mean_inter = (vprof[1:] + vprof[:-1]) / 2
             mask = mask[:-1]
-            uprof_mean_inter[mask] = np.nan
-            vprof_mean_inter[mask] = np.nan
-            # uprof_avg = np.mean(uprof, axis=0)
-            # vprof_avg = np.mean(vprof, axis=0)
-            thickness_reshaped = np.expand_dims(thickness, axis=1)
+            # uprof_mean_inter[mask] = np.nan
+            # vprof_mean_inter[mask] = np.nan
+            thickness_reshaped = np.tile(thickness, (1, mask.shape[1]))
             thickness_reshaped[mask] = np.nan
             # print(np.nansum(thickness_reshaped * uprof_mean_inter, axis=0))
             umean = np.nansum(
