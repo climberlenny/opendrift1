@@ -166,7 +166,31 @@ def advect_iceberg_no_acc(f, water_vel, wind_vel):
     return np.array([no_acc_model_x, no_acc_model_y])
 
 
-# TODO sea ice
+def sea_ice_force(
+    t, iceb_vel, sea_ice_conc, sea_ice_thickness, sea_ice_vel, rhosi, wib, sum_force
+):
+    Ps = 100  # TODO find a value of Ps
+    P_star = 20_000
+    C = 20
+    P = P_star * sea_ice_thickness * np.exp(-C * (1 - sea_ice_conc))
+    csi = 1  # sea ice coefficient of resistance
+    ice_x, ice_y = sea_ice_vel
+    x_vel, y_vel = iceb_vel[0], iceb_vel[1]
+    diff_vel = np.sqrt((ice_x - x_vel) ** 2 + (ice_y - y_vel) ** 2)
+    force_x, force_y = sum_force
+    F_ice_x = np.zeros_like(x_vel)
+    F_ice_y = np.zeros_like(y_vel)
+    F_ice_x = 0.5 * (rhosi * csi * sea_ice_thickness * wib) * diff_vel * (ice_x - x_vel)
+    F_ice_y = 0.5 * (rhosi * csi * sea_ice_thickness * wib) * diff_vel * (ice_y - y_vel)
+    F_ice_x[sea_ice_conc <= 0.15] = 0
+    F_ice_y[sea_ice_conc <= 0.15] = 0
+    F_ice_x[np.logical_and(sea_ice_conc >= 0.9, P >= Ps)] = -force_x[
+        np.logical_and(sea_ice_conc >= 0.9, P >= Ps)
+    ]
+    F_ice_y[np.logical_and(sea_ice_conc >= 0.9, P >= Ps)] = -force_y[
+        np.logical_and(sea_ice_conc >= 0.9, P >= Ps)
+    ]
+    return np.array([F_ice_x, F_ice_y])
 
 
 # MELTING ###################################################################
@@ -183,8 +207,7 @@ def melwav(lib, wib, uaib, vaib, sst, conc, dt):
     """
     Ss = -5 + np.sqrt(32 + 2 * np.sqrt(uaib**2 + vaib**2))
     Vsst = (1 / 6.0) * (sst + 2) * Ss
-    Vwe = Vsst * 0.5 * (1 + np.cos(np.pi * conc**3))  # melting in m/day ?
-    Vwe /= 86400  # melting in m/s ?
+    Vwe = Vsst * 0.5 * (1 + np.cos(np.pi * conc**3)) / 86400  # melting in m/s to Check
 
     # length lost only on one side
     new_lib = np.zeros_like(lib)
@@ -249,37 +272,21 @@ def melbas(depthib, sailib, lib, salnib, tempib, uoib, voib, uib, vib, dt):
     """
 
     # Temperature at the base of the iceberg
-    absv = np.sqrt(((uoib[-1] - uib) ** 2 + (voib[-1] - vib) ** 2))
-    TfS = -0.036 - 0.0499 * salnib[-1] - 0.000112 * salnib[-1] ** 2
-    Tfp = TfS * 2.71828 ** (-0.19 * (tempib[-1] - TfS))
-    deltat = tempib[-1] - Tfp
+    absv = np.sqrt(((uoib - uib) ** 2 + (voib - vib) ** 2))
+    TfS = -0.036 - 0.0499 * salnib - 0.000112 * salnib**2
+    Tfp = TfS * 2.71828 ** (-0.19 * (tempib - TfS))
+    deltat = tempib - Tfp
 
-    Vf = 0.58 * absv**0.8 * deltat / (lib**0.2)
+    Vf = 0.58 * absv**0.8 * deltat / (lib**0.2)  # / 86400
     Vf = Vf / 86400  # convert in m/s
-
-    # Archimedean buoyant force
-    T_mean = tempib.mean(axis=0)
-    S_mean = salnib.mean(axis=0)
-    rho_water = PhysicsMethods.sea_water_density(T_mean, S_mean)
-    rho_iceb = 900
-    factor = rho_iceb / rho_water
-    H = depthib + sailib
-    depthib = H * factor
-    sailib = H - depthib
 
     # Update the depth
     new_depthib = np.zeros_like(depthib)
-    new_sailib = np.zeros_like(sailib)
     new_depthib[depthib != 0] = (
         abs(depthib[depthib != 0]) - Vf[depthib != 0] * dt
     )  # melt the iceberg base
 
-    # finding the new force balance according to Archimedean buoyant force
-    H = new_depthib + sailib
-    new_depthib = H * factor
-    new_sailib = H - new_depthib
-
-    return new_depthib, new_sailib
+    return new_depthib, sailib
 
 
 def is_grounded(
@@ -350,11 +357,14 @@ class IcebergDrift(OceanDrift):
         "sea_water_temperature": {"fallback": 2, "profiles": True},
         "sea_water_salinity": {"fallback": 35, "profiles": True},
         "sea_ice_area_fraction": {"fallback": 0},
+        "sea_ice_thickness": {"fallback": 0},
+        "sea_ice_x_velocity": {"fallback": 0, "important": False},
+        "sea_ice_y_velocity": {"fallback": 0, "important": False},
         "land_binary_mask": {"fallback": None},
     }
 
     def get_profile_masked(self, variable):
-        """mask profile such that we keep the data only for the iceberg draft
+        """mask profile to keep the data only for the iceberg draft
 
         Args:
             variable (_type_): _description_
@@ -366,6 +376,11 @@ class IcebergDrift(OceanDrift):
         mask = mask.T
         mask[np.argmax(mask, axis=0), np.arange(mask.shape[1])] = False
         return np.ma.masked_array(profile, mask, fill_value=np.nan)
+
+    def get_basal_env(self, variable):
+        profile = self.get_profile_masked(variable)
+        last = np.argmin(np.logical_not(profile.mask), axis=0) - 1
+        return profile[last, np.arange(profile.shape[1])]
 
     # Configuration
     def __init__(
@@ -396,6 +411,7 @@ class IcebergDrift(OceanDrift):
         rho_water = 1027
         rho_air = 1.293
         rho_iceb = 900
+        rhosi = 917
         wave_drag_coef = 0.3
         g = 9.81
         draft = self.elements.draft
@@ -413,7 +429,7 @@ class IcebergDrift(OceanDrift):
         f = np.sqrt(k) / (1 + np.sqrt(k))
 
         # environment
-        if not water_profile:
+        if not water_profile:  # TODO change in vert_profile
             water_vel = np.array(
                 [
                     self.environment.x_sea_water_velocity
@@ -456,6 +472,11 @@ class IcebergDrift(OceanDrift):
         wind_vel = np.array([self.environment.x_wind, self.environment.y_wind])
         wave_height = self.environment.sea_surface_wave_significant_height
         wave_direction = self.environment.sea_surface_wave_from_direction
+        sea_ice_conc = self.environment.sea_ice_area_fraction
+        sea_ice_thickness = self.environment.sea_ice_thickness
+        sea_ice_vel = np.array(
+            [self.environment.sea_ice_x_velocity, self.environment.sea_ice_y_velocity]
+        )
 
         def dynamic(
             t,
@@ -490,12 +511,30 @@ class IcebergDrift(OceanDrift):
                     L,
                 )
             )
+            sum_force = sum_force + sea_ice_force(
+                t,
+                V,
+                sea_ice_conc,
+                sea_ice_thickness,
+                sea_ice_vel,
+                rhosi,
+                self.elements.width,
+                sum_force,
+            )
             return 1 / mass * sum_force
 
-        V0 = advect_iceberg_no_acc(f, water_vel, wind_vel).flatten()
+        Ps = 100  # TODO find a value of Ps
+        P_star = 20_000
+        C = 20
+        P = P_star * sea_ice_thickness * np.exp(-C * (1 - sea_ice_conc))
+        V0 = advect_iceberg_no_acc(f, water_vel, wind_vel)
+        V0[:, np.logical_and(sea_ice_conc >= 0.9, P >= Ps)] = sea_ice_vel[
+            :, np.logical_and(sea_ice_conc >= 0.9, P >= Ps)
+        ]  # if this criteria, iceberg moves at sea ice speed
+        V0 = V0.flatten()
 
         hwall = draft - water_depth
-        grounded = hwall >= 0
+        grounded = hwall >= 0  # Check
         if any(grounded) and grounding:
             logger.info(f"Grounding : hwall={np.round(hwall,3)}m")
 
@@ -615,10 +654,12 @@ class IcebergDrift(OceanDrift):
         # loading the required variables :
         x_wind = self.environment.x_wind
         y_wind = self.environment.y_wind
-        uoib = self.environment_profiles["x_sea_water_velocity"]
-        voib = self.environment_profiles["y_sea_water_velocity"]
+        uoib = self.get_basal_env("x_sea_water_velocity")
+        voib = self.get_basal_env("y_sea_water_velocity")
         T_profile = self.environment_profiles["sea_water_temperature"]
         S_profile = self.environment_profiles["sea_water_salinity"]
+        Tn = self.get_basal_env("sea_water_temperature")
+        Sn = self.get_basal_env("sea_water_salinity")
         ice_conc = self.environment.sea_ice_area_fraction
 
         # wave melting
@@ -644,8 +685,8 @@ class IcebergDrift(OceanDrift):
             self.elements.draft,
             self.elements.sail,
             self.elements.length,
-            S_profile,
-            T_profile,
+            Sn,
+            Tn,
             uoib,
             voib,
             self.elements.iceb_x_velocity,
