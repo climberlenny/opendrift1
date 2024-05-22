@@ -19,6 +19,7 @@ import math
 import logging
 from opendrift.models.physics_methods import PhysicsMethods
 from scipy.integrate import solve_ivp
+import itertools
 
 logger = logging.getLogger(__name__)
 from opendrift.models.oceandrift import OceanDrift, Lagrangian3DArray
@@ -382,6 +383,63 @@ class IcebergDrift(OceanDrift):
         last = np.argmin(np.logical_not(profile.mask), axis=0) - 1
         return profile[last, np.arange(profile.shape[1])]
 
+    def seed_ensemble(
+        self,
+        width: tuple,
+        height: tuple,
+        Ca: tuple,
+        Co: tuple,
+        numbers: tuple = (10, 10, 10, 10, 1),
+        **kwargs,
+    ):
+        """_summary_
+
+        Args:
+            width (tuple): (mean,var)
+            height (tuple): (mean,var)
+            Ca (tuple): (mean,var)
+            Co (tuple): (mean,var)
+            numbers (tuple, optional): number of distinct member per param. Defaults to (10,10,10,10,10).
+
+        Returns:
+            _type_: _description_
+        """
+        w_mean, w_var = width
+        h_mean, h_var = height
+        Ca_mean, Ca_var = Ca
+        Co_mean, Co_var = Co
+
+        Ens_w = np.abs(np.random.normal(w_mean, np.sqrt(w_var), numbers[0]))
+        Ens_h = np.abs(np.random.normal(h_mean, np.sqrt(h_var), numbers[1]))
+        Ens_Ca = np.abs(np.random.normal(Ca_mean, np.sqrt(Ca_var), numbers[2]))
+        Ens_Co = np.abs(np.random.normal(Co_mean, np.sqrt(Co_var), numbers[3]))
+
+        rho_iceb = 900
+        rho_water = 1_000
+        alpha = rho_iceb / rho_water
+        crit = np.sqrt(6 * alpha * (1 - alpha))
+        Ens_h[Ens_h > Ens_w / crit] = (
+            Ens_h[Ens_h > Ens_w / crit] / 2
+        )  # Roll over stability
+
+        Ens_tot = np.array(list(itertools.product(Ens_w, Ens_h, Ens_Ca, Ens_Co)))
+        for member in Ens_tot:
+            w, h, ca, co = member
+            l = w
+            draft = h * alpha
+            sail = h - draft
+            self.seed_elements(
+                **kwargs,
+                number=numbers[-1],
+                width=w,
+                length=l,
+                draft=draft,
+                sail=sail,
+                water_drag_coeff=co,
+                wind_drag_coeff=ca,
+            )
+        return 0
+
     # Configuration
     def __init__(
         self,
@@ -523,13 +581,9 @@ class IcebergDrift(OceanDrift):
             )
             return 1 / mass * sum_force
 
-        Ps = 100  # TODO find a value of Ps
-        P_star = 20_000
-        C = 20
-        P = P_star * sea_ice_thickness * np.exp(-C * (1 - sea_ice_conc))
         V0 = advect_iceberg_no_acc(f, water_vel, wind_vel)
-        V0[:, np.logical_and(sea_ice_conc >= 0.9, P >= Ps)] = sea_ice_vel[
-            :, np.logical_and(sea_ice_conc >= 0.9, P >= Ps)
+        V0[:, sea_ice_conc >= 0.9] = sea_ice_vel[
+            :, sea_ice_conc >= 0.9
         ]  # if this criteria, iceberg moves at sea ice speed
         V0 = V0.flatten()
 
@@ -720,7 +774,6 @@ class IcebergDrift(OceanDrift):
 
     def prepare_run(self):
         self.profiles_depth = self.elements_scheduled.draft.max()
-        # TODO draft inter
         logger.info(f"Max Icebergs draft is : {self.profiles_depth}")
 
     def update(self):
@@ -729,7 +782,7 @@ class IcebergDrift(OceanDrift):
         S = self.environment.sea_water_salinity
         rho_water = PhysicsMethods.sea_water_density(T, S)
         self.roll_over(rho_water)
-        self.melt()
+        # self.melt()
         self.advect_iceberg(
             self.with_stokes_drift, self.wave_rad, self.grounding, self.water_profile
         )
