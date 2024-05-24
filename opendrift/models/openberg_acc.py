@@ -447,6 +447,7 @@ class IcebergDrift(OceanDrift):
         wave_rad=True,
         grounding=False,
         water_profile=False,
+        melting=False,
         *args,
         **kwargs,
     ):
@@ -460,6 +461,7 @@ class IcebergDrift(OceanDrift):
         self.with_stokes_drift = with_stokes_drift
         self.grounding = grounding
         self.water_profile = water_profile
+        self.melting = melting
 
     def advect_iceberg(
         self, stokes_drift=True, wave_rad=True, grounding=False, water_profile=False
@@ -782,13 +784,8 @@ class IcebergDrift(OceanDrift):
         S = self.environment.sea_water_salinity
         rho_water = PhysicsMethods.sea_water_density(T, S)
         self.roll_over(rho_water)
-        # self.melt()
+        if self.melting:
+            self.melt()
         self.advect_iceberg(
             self.with_stokes_drift, self.wave_rad, self.grounding, self.water_profile
         )
-
-        # # Grounding
-        # self.deactivate_elements(
-        #     self.elements.draft > self.environment.sea_floor_depth_below_sea_level,
-        #     reason="Grounded iceberg",
-        # )
