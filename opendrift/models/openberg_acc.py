@@ -234,11 +234,14 @@ def mellat(lib, wib, tempib, salnib, dt):
     TfS = -0.036 - 0.0499 * salnib - 0.000112 * salnib**2
     Tfp = TfS * np.exp(-0.19 * (tempib - TfS))
     deltaT = tempib - Tfp
-    deltaT = np.concatenate([deltaT, deltaT**2], axis=0)
-    coefs = np.concatenate(
-        [np.ones_like(tempib) * 2.78, np.ones_like(tempib) * 0.47], axis=0
-    )
-    sumVb = np.diag(np.dot(deltaT.T, coefs))
+    deltaT = np.concatenate([2.78 * deltaT, 0.47 * deltaT**2], axis=0)
+    # deltaT = np.concatenate([deltaT, deltaT**2], axis=0) Old
+
+    # coefs = np.concatenate(
+    #     [np.ones_like(tempib) * 2.78, np.ones_like(tempib) * 0.47], axis=0 Old
+    # )
+    # sumVb = np.diag(np.dot(deltaT.T, coefs)) Old
+    sumVb = np.nansum(deltaT, axis=0)
 
     # Unit of sumVb [meter/year]
     # Convert to meter per second
