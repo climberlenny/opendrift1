@@ -393,6 +393,7 @@ class IcebergDrift(OceanDrift):
         Ca: tuple,
         Co: tuple,
         numbers: tuple = (10, 10, 10, 10, 1),
+        random=True,
         **kwargs,
     ):
         """_summary_
@@ -412,10 +413,16 @@ class IcebergDrift(OceanDrift):
         Ca_mean, Ca_var = Ca
         Co_mean, Co_var = Co
 
-        Ens_w = np.abs(np.random.normal(w_mean, np.sqrt(w_var), numbers[0]))
-        Ens_h = np.abs(np.random.normal(h_mean, np.sqrt(h_var), numbers[1]))
-        Ens_Ca = np.abs(np.random.normal(Ca_mean, np.sqrt(Ca_var), numbers[2]))
-        Ens_Co = np.abs(np.random.normal(Co_mean, np.sqrt(Co_var), numbers[3]))
+        if random:
+            Ens_w = np.abs(np.random.normal(w_mean, np.sqrt(w_var), 10_000))
+            Ens_h = np.abs(np.random.normal(h_mean, np.sqrt(h_var), 10_000))
+            Ens_Ca = np.abs(np.random.normal(Ca_mean, np.sqrt(Ca_var), 10_000))
+            Ens_Co = np.abs(np.random.normal(Co_mean, np.sqrt(Co_var), 10_000))
+        else:
+            Ens_w = np.abs(np.random.normal(w_mean, np.sqrt(w_var), numbers[0]))
+            Ens_h = np.abs(np.random.normal(h_mean, np.sqrt(h_var), numbers[1]))
+            Ens_Ca = np.abs(np.random.normal(Ca_mean, np.sqrt(Ca_var), numbers[2]))
+            Ens_Co = np.abs(np.random.normal(Co_mean, np.sqrt(Co_var), numbers[3]))
 
         rho_iceb = 900
         rho_water = 1_000
@@ -424,23 +431,46 @@ class IcebergDrift(OceanDrift):
         Ens_h[Ens_h > Ens_w / crit] = (
             Ens_h[Ens_h > Ens_w / crit] / 2
         )  # Roll over stability
-
-        Ens_tot = np.array(list(itertools.product(Ens_w, Ens_h, Ens_Ca, Ens_Co)))
-        for member in Ens_tot:
-            w, h, ca, co = member
-            l = w
-            draft = h * alpha
-            sail = h - draft
-            self.seed_elements(
-                **kwargs,
-                number=numbers[-1],
-                width=w,
-                length=l,
-                draft=draft,
-                sail=sail,
-                water_drag_coeff=co,
-                wind_drag_coeff=ca,
-            )
+        if not random:
+            Ens_tot = np.array(list(itertools.product(Ens_w, Ens_h, Ens_Ca, Ens_Co)))
+            for member in Ens_tot:
+                w, h, ca, co = member
+                l = w
+                draft = h * alpha
+                sail = h - draft
+                self.seed_elements(
+                    **kwargs,
+                    number=numbers[-1],
+                    width=w,
+                    length=l,
+                    draft=draft,
+                    sail=sail,
+                    water_drag_coeff=co,
+                    wind_drag_coeff=ca,
+                )
+        else:
+            combined_array = np.vstack((Ens_w, Ens_h, Ens_Ca, Ens_Co))
+            combined_array = combined_array.T  # shape(10_000,4)
+            np.random.shuffle(combined_array)
+            if "number" in kwargs:
+                number = kwargs["number"]
+            else:
+                number = numbers[-1]
+            sampled_array = combined_array[:number]
+            for member in sampled_array:
+                w, h, ca, co = member
+                l = w
+                draft = h * alpha
+                sail = h - draft
+                self.seed_elements(
+                    **kwargs,
+                    width=w,
+                    length=l,
+                    draft=draft,
+                    sail=sail,
+                    water_drag_coeff=co,
+                    wind_drag_coeff=ca,
+                )
         return 0
 
     # Configuration
