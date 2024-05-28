@@ -293,6 +293,7 @@ def melbas(depthib, sailib, lib, salnib, tempib, uoib, voib, uib, vib, dt):
     return new_depthib, sailib
 
 
+# GROUNDING ################################################################
 def is_grounded(
     grounded: bool,
     hwall: float,
@@ -455,7 +456,7 @@ class IcebergDrift(OceanDrift):
             if "number" in kwargs:
                 number = kwargs["number"]
             else:
-                number = numbers[-1]
+                number = np.prod(numbers)
             sampled_array = combined_array[:number]
             for member in sampled_array:
                 w, h, ca, co = member
