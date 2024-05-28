@@ -395,45 +395,120 @@ class IcebergDrift(OceanDrift):
         Co: tuple,
         numbers: tuple = (10, 10, 10, 10, 1),
         random=True,
+        drag_coeff_distribution="normal",
         **kwargs,
     ):
         """_summary_
 
         Args:
-            width (tuple): (mean,var)
-            height (tuple): (mean,var)
-            Ca (tuple): (mean,var)
-            Co (tuple): (mean,var)
+            width (tuple): (mean,std)
+            height (tuple): (mean,std)
+            Ca (tuple): (min,max,mean,std)
+            Co (tuple): (min,max,mean,std)
             numbers (tuple, optional): number of distinct member per param. Defaults to (10,10,10,10,10).
 
         Returns:
             _type_: _description_
         """
-        w_mean, w_var = width
-        h_mean, h_var = height
-        Ca_mean, Ca_var = Ca
-        Co_mean, Co_var = Co
+        w_mean, w_std = width
+        h_mean, h_std = height
+        if len(Ca) == 2:
+            Ca_min, Ca_max = 0.5, 2.5
+            logger.debug(
+                f"Default min and max value for wind drag coeff are {Ca_min} and {Ca_max}"
+            )
+            Ca_mean, Ca_std = Ca
+        elif len(Ca) == 4:
+            Ca_min, Ca_max, Ca_mean, Ca_std = Ca
+        else:
+            logger.warning(f"Ca wrong size. Please give (min,max,mean,std).")
+        if len(Co) == 2:
+            Co_min, Co_max = 0.5, 2.5
+            logger.debug(
+                f"Default min and max value for wind drag coeff are {Co_min} and {Co_max}"
+            )
+            Co_mean, Co_std = Co
+        elif len(Co) == 4:
+            Co_min, Co_max, Co_mean, Co_std = Co
+        else:
+            logger.warning(f"Co wrong size. Please give (min,max,mean,std).")
+        if Ca_min > Ca_mean:
+            logger.warning(
+                f"Ca mean value too small compare to min : mean={Ca_mean} , min={Ca_min}"
+            )
+        if Co_min > Co_mean:
+            logger.error(
+                f"Co mean value too small compare to min : mean={Co_mean} , min={Co_min}"
+            )
 
         if random:
-            Ens_w = np.abs(np.random.normal(w_mean, np.sqrt(w_var), 10_000))
-            Ens_h = np.abs(np.random.normal(h_mean, np.sqrt(h_var), 10_000))
-            Ens_Ca = np.abs(np.random.normal(Ca_mean, np.sqrt(Ca_var), 10_000))
-            Ens_Co = np.abs(np.random.normal(Co_mean, np.sqrt(Co_var), 10_000))
+            Ens_w = np.abs(np.random.normal(w_mean, w_std, 10_000))
+            Ens_h = np.abs(np.random.normal(h_mean, h_std, 10_000))
+            if drag_coeff_distribution == "normal":
+                Ens_Ca = np.abs(np.random.normal(Ca_mean, Ca_std, 10_000))
+                Ens_Co = np.abs(np.random.normal(Co_mean, Co_std, 10_000))
+            elif drag_coeff_distribution == "uniform":
+                Ens_Ca = np.abs(
+                    np.random.uniform(Ca_mean - Ca_std, Ca_mean + Ca_std, 10_000)
+                )
+                Ens_Co = np.abs(
+                    np.random.uniform(Co_mean - Co_std, Co_mean + Co_std, 10_000)
+                )
         else:
-            Ens_w = np.abs(np.random.normal(w_mean, np.sqrt(w_var), numbers[0]))
-            Ens_h = np.abs(np.random.normal(h_mean, np.sqrt(h_var), numbers[1]))
-            Ens_Ca = np.abs(np.random.normal(Ca_mean, np.sqrt(Ca_var), numbers[2]))
-            Ens_Co = np.abs(np.random.normal(Co_mean, np.sqrt(Co_var), numbers[3]))
+            Ens_w = np.abs(np.random.normal(w_mean, w_std, numbers[0]))
+            Ens_h = np.abs(np.random.normal(h_mean, h_std, numbers[1]))
+            if drag_coeff_distribution == "normal":
+                Ens_Ca = np.abs(np.random.normal(Ca_mean, Ca_std, numbers[2]))
+                Ens_Co = np.abs(np.random.normal(Co_mean, Co_std, numbers[3]))
+            elif drag_coeff_distribution == "uniform":
+                Ens_Ca = np.abs(
+                    np.random.uniform(Ca_mean - Ca_std, Ca_mean + Ca_std, numbers[2])
+                )
+                Ens_Co = np.abs(
+                    np.random.uniform(Co_mean - Co_std, Co_mean + Co_std, numbers[3])
+                )
+
+        if drag_coeff_distribution == "normal":
+            # filter Ca and Co to have a normal distribution between min an max values
+            filtered_Ca = Ens_Ca[(Ens_Ca >= Ca_min) & (Ens_Ca <= Ca_max)]
+            while len(filtered_Ca) < 10_000:
+                extra_values = np.random.normal(Ca_mean, Ca_std, 10_000)
+                filtered_Ca = np.concatenate(
+                    (
+                        filtered_Ca,
+                        extra_values[
+                            (extra_values >= Ca_min) & (extra_values <= Ca_max)
+                        ],
+                    )
+                )
+            filtered_Ca = filtered_Ca[:10_000]
+
+            filtered_Co = Ens_Co[(Ens_Co >= Co_min) & (Ens_Co <= Co_max)]
+            while len(filtered_Co) < 10_000:
+                extra_values = np.random.normal(Co_mean, Co_std, 10_000)
+                filtered_Co = np.concatenate(
+                    (
+                        filtered_Co,
+                        extra_values[
+                            (extra_values >= Co_min) & (extra_values <= Co_max)
+                        ],
+                    )
+                )
+            filtered_Co = filtered_Co[:10_000]
+            Ens_Ca, Ens_Co = filtered_Ca, filtered_Co
 
         rho_iceb = 900
         rho_water = 1_000
         alpha = rho_iceb / rho_water
         crit = np.sqrt(6 * alpha * (1 - alpha))
-        Ens_h[Ens_h > Ens_w / crit] = (
-            Ens_h[Ens_h > Ens_w / crit] / 2
-        )  # Roll over stability
+
+        ### Roll over stability : we decide to keep it random whitout correction. Uncomment to add the correction before running the model
+        # Ens_h[Ens_h > Ens_w / crit] = (
+        #     Ens_h[Ens_h > Ens_w / crit] / 2
+        # )  # Roll over stability
         if not random:
             Ens_tot = np.array(list(itertools.product(Ens_w, Ens_h, Ens_Ca, Ens_Co)))
+            logger.info("seeding ensemble ...")
             for member in Ens_tot:
                 w, h, ca, co = member
                 l = w
@@ -458,20 +533,37 @@ class IcebergDrift(OceanDrift):
             else:
                 number = np.prod(numbers)
             sampled_array = combined_array[:number]
-            for member in sampled_array:
-                w, h, ca, co = member
-                l = w
-                draft = h * alpha
-                sail = h - draft
-                self.seed_elements(
-                    **kwargs,
-                    width=w,
-                    length=l,
-                    draft=draft,
-                    sail=sail,
-                    water_drag_coeff=co,
-                    wind_drag_coeff=ca,
-                )
+            logger.info("seeding ensemble ...")
+            w = sampled_array[:, 0]
+            h = sampled_array[:, 1]
+            ca = sampled_array[:, 2]
+            co = sampled_array[:, 3]
+            l = w
+            draft = h * alpha
+            sail = h - draft
+            self.seed_elements(
+                **kwargs,
+                width=w,
+                length=l,
+                draft=draft,
+                sail=sail,
+                water_drag_coeff=co,
+                wind_drag_coeff=ca,
+            )
+            # for member in sampled_array:
+            #     w, h, ca, co = member
+            #     l = w
+            #     draft = h * alpha
+            #     sail = h - draft
+            #     self.seed_elements(
+            #         **kwargs,
+            #         width=w,
+            #         length=l,
+            #         draft=draft,
+            #         sail=sail,
+            #         water_drag_coeff=co,
+            #         wind_drag_coeff=ca,
+            #     )
         return 0
 
     # Configuration
