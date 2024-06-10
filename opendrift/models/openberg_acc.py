@@ -13,9 +13,9 @@
 # along with OpenDrift.  If not, see <https://www.gnu.org/licenses/>.
 #
 # Copyright 2015, 2020, Knut-Frode Dagestad, MET Norway
+# Copyright 2024, Lenny Hucher, NERSC
 
 import numpy as np
-import math
 import logging
 from opendrift.models.physics_methods import PhysicsMethods
 from scipy.integrate import solve_ivp
@@ -173,10 +173,6 @@ def advect_iceberg_no_acc(f, water_vel, wind_vel):
 def sea_ice_force(
     t, iceb_vel, sea_ice_conc, sea_ice_thickness, sea_ice_vel, rhosi, wib, sum_force
 ):
-    Ps = 100  # TODO find a value of Ps
-    P_star = 20_000
-    C = 20
-    P = P_star * sea_ice_thickness * np.exp(-C * (1 - sea_ice_conc))
     csi = 1  # sea ice coefficient of resistance
     ice_x, ice_y = sea_ice_vel
     x_vel, y_vel = iceb_vel[0], iceb_vel[1]
@@ -188,12 +184,8 @@ def sea_ice_force(
     F_ice_y = 0.5 * (rhosi * csi * sea_ice_thickness * wib) * diff_vel * (ice_y - y_vel)
     F_ice_x[sea_ice_conc <= 0.15] = 0
     F_ice_y[sea_ice_conc <= 0.15] = 0
-    F_ice_x[np.logical_and(sea_ice_conc >= 0.9, P >= Ps)] = -force_x[
-        np.logical_and(sea_ice_conc >= 0.9, P >= Ps)
-    ]
-    F_ice_y[np.logical_and(sea_ice_conc >= 0.9, P >= Ps)] = -force_y[
-        np.logical_and(sea_ice_conc >= 0.9, P >= Ps)
-    ]
+    F_ice_x[sea_ice_conc >= 0.9] = -force_x[sea_ice_conc >= 0.9]
+    F_ice_y[sea_ice_conc >= 0.9] = -force_y[sea_ice_conc >= 0.9]
     return np.array([F_ice_x, F_ice_y])
 
 
@@ -298,54 +290,6 @@ def melbas(depthib, sailib, lib, salnib, tempib, uoib, voib, uib, vib, dt):
     new_depthib[depthib < 0] = 0
 
     return new_depthib, sailib
-
-
-# GROUNDING ################################################################
-def is_grounded(
-    grounded: bool,
-    hwall: float,
-    draft: float,
-    water_depth: float,
-    g: float,
-    rhoib: float,
-    rho_water: float,
-    lib: float,
-    wib: float,
-    hib: float,
-    ax: float,
-    ay: float,
-):
-    """do Not use
-
-    Args:
-        grounded (bool): status if the iceberg is initially grounded
-        draft (float): under water part of the iceberg
-        water_depth (float): depth of the sea floor
-        rhoib (float): iceberg volumic mass
-        rho_water (float): sea water volumic mass
-        lib (float): iceberg length
-        wib (float): iceberg width
-        hib (float): iceberg total height
-        Fib (float): norm of total force applied on the iceberg
-
-    Returns:
-        tuple: (ax, ay)
-    """
-    if grounded:
-        mass = rhoib * lib * wib * hib
-        Fib = mass * np.sqrt(ax**2 + ay**2)
-        mu = 0.5  # Static friction, Friction coeff taken from Barker and Timco(2003)
-        Fp = rhoib * g * lib * wib * (hib - rho_water / rhoib * water_depth)
-        if np.logical_and(Fib > mu * Fp, hwall < 2):  # static criteria
-            mu = 0.35  # Dynamic friction, Friction coeff taken from Barker and Timco(2003)
-            diff = Fib - mu * Fp  # the iceberg is moving --> dynamic friction coef
-            ax = ax * diff / Fib
-            ay = ay * diff / Fib
-            return (ax, ay)  # grounded but moving
-        else:
-            return (0, 0)  # grounded and motionless
-    else:
-        return (ax, ay)  # not grounded
 
 
 class IcebergDrift(OceanDrift):
@@ -728,89 +672,6 @@ class IcebergDrift(OceanDrift):
             logger.info(
                 f"Grounding : {len(hwall[hwall>0])}, hwall={np.round(hwall[hwall>0],3)}m"
             )
-
-            # def dynamic(
-            #     t,
-            #     V,
-            #     water_vel,
-            #     wind_vel,
-            #     wave_height,
-            #     wave_direction,
-            #     water_depth,
-            #     Ao,
-            #     Aa,
-            #     draft,
-            #     length,
-            #     width,
-            #     height,
-            #     rho_water,
-            #     rho_air,
-            #     water_drag_coef,
-            #     wind_drag_coef,
-            #     wave_drag_coef,
-            #     g,
-            #     mass,
-            # ):
-            #     sum_force = (
-            #         water_drag(t, V, water_vel, Ao, rho_water, water_drag_coef)
-            #         + wind_drag(t, V, wind_vel, Aa, rho_air, wind_drag_coef)
-            #         + int(wave_rad)
-            #         * wave_radiation_force(
-            #             t,
-            #             V,
-            #             rho_water,
-            #             wave_drag_coef,
-            #             g,
-            #             wave_height,
-            #             wave_direction,
-            #             length,
-            #         )
-            #     )
-            #     ax, ay = is_grounded(
-            #         grounded,
-            #         hwall,
-            #         draft,
-            #         water_depth,
-            #         g,
-            #         rho_iceb,
-            #         rho_water,
-            #         length,
-            #         width,
-            #         height,
-            #         sum_force[0] / mass,
-            #         sum_force[1] / mass,
-            #     )
-            #     return np.array([ax, ay])
-
-            # V0 = V0 * 0  #  We suppose that the iceberg will stop if is grounded
-            # sol = solve_ivp(
-            #     dynamic,
-            #     [0, self.time_step.total_seconds()],
-            #     V0,
-            #     args=(
-            #         water_vel,
-            #         wind_vel,
-            #         wave_height,
-            #         wave_direction,
-            #         water_depth,
-            #         Ao,
-            #         Aa,
-            #         draft,
-            #         length,
-            #         self.elements.width,
-            #         height,
-            #         rho_water,
-            #         rho_air,
-            #         self.elements.water_drag_coeff,
-            #         self.elements.wind_drag_coeff,
-            #         wave_drag_coef,
-            #         g,
-            #         mass,
-            #     ),
-            #     vectorized=True,
-            #     t_eval=np.array([self.time_step.total_seconds()]),
-            # )
-
         sol = solve_ivp(
             dynamic,
             [0, self.time_step.total_seconds()],
@@ -884,7 +745,7 @@ class IcebergDrift(OceanDrift):
             self.elements.iceb_y_velocity,
             self.time_step.total_seconds(),
         )
-        # deactivate elements too small less than 1 meter
+        # deactivate elements too small : less than 1 meter
         self.deactivate_elements(self.elements.draft < 1, "Iceberg melted")
         self.deactivate_elements(self.elements.length < 1, "Iceberg melted")
         self.deactivate_elements(self.elements.width < 1, "Iceberg melted")
