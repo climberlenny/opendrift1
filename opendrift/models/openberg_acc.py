@@ -520,11 +520,12 @@ class IcebergDrift(OceanDrift):
     # Configuration
     def __init__(
         self,
-        with_stokes_drift=True,
-        wave_rad=True,
-        grounding=False,
-        water_profile=False,
-        melting=False,
+        with_stokes_drift: bool = True,
+        wave_rad: bool = True,
+        grounding: bool = False,
+        water_profile: bool = False,
+        melting: bool = False,
+        choose_melting: dict[bool] = {"wave": True, "lateral": True, "basal": True},
         *args,
         **kwargs,
     ):
@@ -538,7 +539,12 @@ class IcebergDrift(OceanDrift):
         self.with_stokes_drift = with_stokes_drift
         self.grounding = grounding
         self.water_profile = water_profile
-        self.melting = melting
+        self.melting = (
+            melting  # boolean parameter to decide wether or not the iceberg melt
+        )
+        self.choose_melting = (
+            choose_melting  # boolean dictionnary to decide how the iceberg melt
+        )
 
     def advect_iceberg(
         self, stokes_drift=True, wave_rad=True, grounding=False, water_profile=False
@@ -715,36 +721,39 @@ class IcebergDrift(OceanDrift):
         ice_conc = self.environment.sea_ice_area_fraction
 
         # wave melting
-        self.elements.length, self.elements.width = melwav(
-            self.elements.length,
-            self.elements.width,
-            x_wind,
-            y_wind,
-            T_profile[0],
-            ice_conc,
-            self.time_step.total_seconds(),
-        )
+        if self.choose_melting["wave"]:
+            self.elements.length, self.elements.width = melwav(
+                self.elements.length,
+                self.elements.width,
+                x_wind,
+                y_wind,
+                T_profile[0],
+                ice_conc,
+                self.time_step.total_seconds(),
+            )
         # lateral melting
-        self.elements.length, self.elements.width = mellat(
-            self.elements.length,
-            self.elements.width,
-            T_profile,
-            S_profile,
-            self.time_step.total_seconds(),
-        )
+        if self.choose_melting["lateral"]:
+            self.elements.length, self.elements.width = mellat(
+                self.elements.length,
+                self.elements.width,
+                T_profile,
+                S_profile,
+                self.time_step.total_seconds(),
+            )
         # basal melting
-        self.elements.draft, self.elements.sail = melbas(
-            self.elements.draft,
-            self.elements.sail,
-            self.elements.length,
-            Sn,
-            Tn,
-            uoib,
-            voib,
-            self.elements.iceb_x_velocity,
-            self.elements.iceb_y_velocity,
-            self.time_step.total_seconds(),
-        )
+        if self.choose_melting["basal"]:
+            self.elements.draft, self.elements.sail = melbas(
+                self.elements.draft,
+                self.elements.sail,
+                self.elements.length,
+                Sn,
+                Tn,
+                uoib,
+                voib,
+                self.elements.iceb_x_velocity,
+                self.elements.iceb_y_velocity,
+                self.time_step.total_seconds(),
+            )
         # deactivate elements too small : less than 1 meter
         self.deactivate_elements(self.elements.draft < 1, "Iceberg melted")
         self.deactivate_elements(self.elements.length < 1, "Iceberg melted")
