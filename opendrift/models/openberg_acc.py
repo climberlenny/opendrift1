@@ -164,7 +164,10 @@ def advect_iceberg_no_acc(f, water_vel, wind_vel):
 
     no_acc_model_x = (1 - f) * vxo + f * vxa
     no_acc_model_y = (1 - f) * vyo + f * vya
-    return np.array([no_acc_model_x, no_acc_model_y])
+    V = np.array([no_acc_model_x, no_acc_model_y])
+    if not np.isfinite(V).all():
+        pass
+    return V
 
 
 def sea_ice_force(
@@ -215,7 +218,8 @@ def melwav(lib, wib, uaib, vaib, sst, conc, dt):
     new_wib = np.zeros_like(wib)
     new_lib[lib != 0] = lib[lib != 0] - Vwe[lib != 0] * dt
     new_wib[lib != 0] = wib[lib != 0] / lib[lib != 0] * new_lib[lib != 0]
-
+    new_lib[new_lib < 0] = 0
+    new_wib[new_wib < 0] = 0
     return new_lib, new_wib
 
 
@@ -255,6 +259,8 @@ def mellat(lib, wib, tempib, salnib, dt):
     new_wib[lib != 0] = (
         wib[lib != 0] / lib[lib != 0] * new_lib[lib != 0]
     )  # keep the same width/length ratio
+    new_lib[new_lib < 0] = 0
+    new_wib[new_wib < 0] = 0
     return new_lib, new_wib
 
 
@@ -289,6 +295,7 @@ def melbas(depthib, sailib, lib, salnib, tempib, uoib, voib, uib, vib, dt):
     new_depthib[depthib != 0] = (
         abs(depthib[depthib != 0]) - Vf[depthib != 0] * dt
     )  # melt the iceberg base
+    new_depthib[depthib < 0] = 0
 
     return new_depthib, sailib
 
@@ -718,7 +725,9 @@ class IcebergDrift(OceanDrift):
         hwall = draft - water_depth
         grounded = hwall >= 0  # Check
         if any(grounded) and grounding:
-            logger.info(f"Grounding : hwall={np.round(hwall,3)}m")
+            logger.info(
+                f"Grounding : {len(hwall[hwall>0])}, hwall={np.round(hwall[hwall>0],3)}m"
+            )
 
             # def dynamic(
             #     t,
@@ -875,6 +884,11 @@ class IcebergDrift(OceanDrift):
             self.elements.iceb_y_velocity,
             self.time_step.total_seconds(),
         )
+        # deactivate elements too small less than 1 meter
+        self.deactivate_elements(self.elements.draft < 1, "Iceberg melted")
+        self.deactivate_elements(self.elements.length < 1, "Iceberg melted")
+        self.deactivate_elements(self.elements.width < 1, "Iceberg melted")
+        self.deactivate_elements(self.elements.sail < 1, "Iceberg melted")
 
     def roll_over(self, rho_water):
         L = self.elements.length
@@ -886,7 +900,7 @@ class IcebergDrift(OceanDrift):
         W, L = np.min([L, W], axis=0), np.max([L, W], axis=0)
         mask = (W / H) < crit
         if any(mask):
-            logger.info("Rolling over")
+            logger.info(f"Rolling over : {np.sum(mask)} icebergs")
             nL, nW, nH = (
                 np.max([L[mask], H[mask]], axis=0),
                 np.min([L[mask], H[mask]], axis=0),
