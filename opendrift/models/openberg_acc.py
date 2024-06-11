@@ -194,7 +194,14 @@ def advect_iceberg_no_acc(f, water_vel, wind_vel):
 
 
 def sea_ice_force(
-    t, iceb_vel, sea_ice_conc, sea_ice_thickness, sea_ice_vel, rhosi, wib, sum_force
+    t,
+    iceb_vel,
+    sea_ice_conc,
+    sea_ice_thickness,
+    sea_ice_vel,
+    rhosi,
+    iceb_width,
+    sum_force,
 ):
     """_summary_
 
@@ -218,8 +225,18 @@ def sea_ice_force(
     force_x, force_y = sum_force
     F_ice_x = np.zeros_like(x_vel)
     F_ice_y = np.zeros_like(y_vel)
-    F_ice_x = 0.5 * (rhosi * csi * sea_ice_thickness * wib) * diff_vel * (ice_x - x_vel)
-    F_ice_y = 0.5 * (rhosi * csi * sea_ice_thickness * wib) * diff_vel * (ice_y - y_vel)
+    F_ice_x = (
+        0.5
+        * (rhosi * csi * sea_ice_thickness * iceb_width)
+        * diff_vel
+        * (ice_x - x_vel)
+    )
+    F_ice_y = (
+        0.5
+        * (rhosi * csi * sea_ice_thickness * iceb_width)
+        * diff_vel
+        * (ice_y - y_vel)
+    )
     F_ice_x[sea_ice_conc <= 0.15] = 0
     F_ice_y[sea_ice_conc <= 0.15] = 0
     F_ice_x[sea_ice_conc >= 0.9] = -force_x[sea_ice_conc >= 0.9]
@@ -228,40 +245,46 @@ def sea_ice_force(
 
 
 # MELTING ###################################################################
-def melwav(lib, wib, uaib, vaib, sst, conc, dt):
+def melwav(iceb_length, iceb_width, x_wind, y_wind, sst, conc, dt):
     """update length and width value according to wave melting
 
     Args:
-        lib (_type_): iceberg length
-        wib (_type_): iceberg width
-        uaib (_type_): wind speed x component
-        vaib (_type_): wind speed y component
+        iceb_length (_type_): iceberg length
+        iceb_width (_type_): iceberg width
+        x_wind (_type_): wind speed x component
+        y_wind (_type_): wind speed y component
         sst (_type_): Sea surface temperature
         conc (_type_): sea ice concentration
     """
     # ref Keghouche's thesis
-    Ss = -5 + np.sqrt(32 + 2 * np.sqrt(uaib**2 + vaib**2))
+    Ss = -5 + np.sqrt(32 + 2 * np.sqrt(x_wind**2 + y_wind**2))
     Vsst = (1 / 6.0) * (sst + 2) * Ss
     Vwe = Vsst * 0.5 * (1 + np.cos(np.pi * conc**3)) / 86400  # melting in m/s to Check
 
     # length lost only on one side
-    new_lib = np.zeros_like(lib)
-    new_wib = np.zeros_like(wib)
-    new_lib[lib != 0] = lib[lib != 0] - Vwe[lib != 0] * dt
-    new_wib[lib != 0] = wib[lib != 0] / lib[lib != 0] * new_lib[lib != 0]
-    new_lib[new_lib < 0] = 0
-    new_wib[new_wib < 0] = 0
-    return new_lib, new_wib
+    new_iceb_length = np.zeros_like(iceb_length)
+    new_iceb_width = np.zeros_like(iceb_width)
+    new_iceb_length[iceb_length != 0] = (
+        iceb_length[iceb_length != 0] - Vwe[iceb_length != 0] * dt
+    )
+    new_iceb_width[iceb_length != 0] = (
+        iceb_width[iceb_length != 0]
+        / iceb_length[iceb_length != 0]
+        * new_iceb_length[iceb_length != 0]
+    )
+    new_iceb_length[new_iceb_length < 0] = 0
+    new_iceb_width[new_iceb_width < 0] = 0
+    return new_iceb_length, new_iceb_width
 
 
-def mellat(lib, wib, tempib, salnib, dt):
+def mellat(iceb_length, iceb_width, tempib, salnib, dt):
     # Lateral melting parameterization taken from Kubat et al. 2007
     # An operational iceberg deterioration model
     """_summary_
 
     Args:
-        lib (_type_): iceberg length
-        wib (_type_): icebrg width
+        iceb_length (_type_): iceberg length
+        iceb_width (_type_): icebrg width
         tempib (_type_): far field water temperature vector size nz*N_elements
         salnib (_type_): water salinity vector size nz*N_elements
         dt : timestep in second
@@ -284,51 +307,66 @@ def mellat(lib, wib, tempib, salnib, dt):
 
     # Change of iceberg length (on both sides?? -> 2.*)
 
-    new_lib = np.zeros_like(lib)
-    new_wib = np.zeros_like(wib)
-    new_lib[lib != 0] = lib[lib != 0] - 2 * dx[lib != 0]
-    new_wib[lib != 0] = (
-        wib[lib != 0] / lib[lib != 0] * new_lib[lib != 0]
+    new_iceb_length = np.zeros_like(iceb_length)
+    new_iceb_width = np.zeros_like(iceb_width)
+    new_iceb_length[iceb_length != 0] = (
+        iceb_length[iceb_length != 0] - 2 * dx[iceb_length != 0]
+    )
+    new_iceb_width[iceb_length != 0] = (
+        iceb_width[iceb_length != 0]
+        / iceb_length[iceb_length != 0]
+        * new_iceb_length[iceb_length != 0]
     )  # keep the same width/length ratio
-    new_lib[new_lib < 0] = 0
-    new_wib[new_wib < 0] = 0
-    return new_lib, new_wib
+    new_iceb_length[new_iceb_length < 0] = 0
+    new_iceb_width[new_iceb_width < 0] = 0
+    return new_iceb_length, new_iceb_width
 
 
-def melbas(depthib, sailib, lib, salnib, tempib, uoib, voib, uib, vib, dt):
+def melbas(
+    iceb_draft,
+    iceb_sail,
+    iceb_length,
+    salnib,
+    tempib,
+    x_water_vel,
+    y_water_vel,
+    x_iceb_vel,
+    y_iceb_vel,
+    dt,
+):
     """
     Calculate the surface melt due to forced convection following Kubat et al.
     (An operational iceberg deterioration Model 2007).
 
-    :param depthib: Iceberg depth (positive value)
-    :param lib: Iceberg length scale
+    :param iceb_draft: Iceberg depth (positive value)
+    :param iceb_length: Iceberg length scale
     :param salnib: Salinity profile in the ocean (array of length nz)
     :param tempib: Temperature profile in the ocean (array of length nz)
-    :param uoib: Ocean velocity components in the x-direction (array of length nz)
-    :param voib: Ocean velocity components in the y-direction (array of length nz)
-    :param uib: Iceberg drift velocity in the x-direction
-    :param vib: Iceberg drift velocity in the y-direction
+    :param x_water_vel: Ocean velocity components in the x-direction (array of length nz)
+    :param y_water_vel: Ocean velocity components in the y-direction (array of length nz)
+    :param x_iceb_vel: Iceberg drift velocity in the x-direction
+    :param y_iceb_vel: Iceberg drift velocity in the y-direction
 
-    The function updates the depthib parameter.
+    The function updates the iceb_draft parameter.
     """
 
     # Temperature at the base of the iceberg
-    absv = np.sqrt(((uoib - uib) ** 2 + (voib - vib) ** 2))
+    absv = np.sqrt(((x_water_vel - x_iceb_vel) ** 2 + (y_water_vel - y_iceb_vel) ** 2))
     TfS = -0.036 - 0.0499 * salnib - 0.000112 * salnib**2
     Tfp = TfS * 2.71828 ** (-0.19 * (tempib - TfS))
     deltat = tempib - Tfp
 
-    Vf = 0.58 * absv**0.8 * deltat / (lib**0.2)  # / 86400
+    Vf = 0.58 * absv**0.8 * deltat / (iceb_length**0.2)  # / 86400
     Vf = Vf / 86400  # convert in m/s
 
     # Update the depth
-    new_depthib = np.zeros_like(depthib)
-    new_depthib[depthib != 0] = (
-        abs(depthib[depthib != 0]) - Vf[depthib != 0] * dt
+    new_iceb_draft = np.zeros_like(iceb_draft)
+    new_iceb_draft[iceb_draft != 0] = (
+        abs(iceb_draft[iceb_draft != 0]) - Vf[iceb_draft != 0] * dt
     )  # melt the iceberg base
-    new_depthib[depthib < 0] = 0
+    new_iceb_draft[iceb_draft < 0] = 0
 
-    return new_depthib, sailib
+    return new_iceb_draft, iceb_sail
 
 
 class IcebergDrift(OceanDrift):
@@ -757,7 +795,7 @@ class IcebergDrift(OceanDrift):
 
         def dynamic(
             t,
-            V,
+            iceb_vel,
             water_vel,
             wind_vel,
             wave_height,
@@ -770,27 +808,27 @@ class IcebergDrift(OceanDrift):
             wind_drag_coef,
             wave_drag_coef,
             g,
-            L,
+            iceb_length,
             mass,
         ):
             sum_force = (
-                water_drag(t, V, water_vel, Ao, rho_water, water_drag_coef)
-                + wind_drag(t, V, wind_vel, Aa, rho_air, wind_drag_coef)
+                water_drag(t, iceb_vel, water_vel, Ao, rho_water, water_drag_coef)
+                + wind_drag(t, iceb_vel, wind_vel, Aa, rho_air, wind_drag_coef)
                 + int(wave_rad)
                 * wave_radiation_force(
                     t,
-                    V,
+                    iceb_vel,
                     rho_water,
                     wave_drag_coef,
                     g,
                     wave_height,
                     wave_direction,
-                    L,
+                    iceb_length,
                 )
             )
             sum_force = sum_force + sea_ice_force(
                 t,
-                V,
+                iceb_vel,
                 sea_ice_conc,
                 sea_ice_thickness,
                 sea_ice_vel,
