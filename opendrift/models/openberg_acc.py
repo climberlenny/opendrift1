@@ -97,7 +97,8 @@ class IcebergObj(Lagrangian3DArray):
 
 
 def water_drag(t, iceb_vel, water_vel, Ao, rho_water, water_drag_coef):
-    """
+    """taken from Keghouche et al. 2009
+
     Args:
         t : dummy parameter corresponding to the current time
         iceb_vel : Iceberg velocity at time t
@@ -128,7 +129,7 @@ def water_drag(t, iceb_vel, water_vel, Ao, rho_water, water_drag_coef):
 
 
 def wind_drag(t, iceb_vel, wind_vel, Aa, rho_air, wind_drag_coef):
-    """
+    """taken from Keghouche et al. 2009
     Args:
         t : dummy parameter corresponding to the current time
         iceb_vel : Iceberg velocity at time t
@@ -236,7 +237,7 @@ def sea_ice_force(
     iceb_width,
     sum_force,
 ):
-    """
+    """taken from Keghouche et al. 2009
     Args:
         t : dummy parameter corresponding to the current time
         iceb_vel : Iceberg velocity at time t
@@ -278,7 +279,7 @@ def sea_ice_force(
 
 # MELTING ###################################################################
 def melwav(iceb_length, iceb_width, x_wind, y_wind, sst, conc, dt):
-    """update length and width value according to wave melting
+    """update length and width value according to wave melting. taken from Keghouche et al. 2009
 
     Args:
         iceb_length : iceberg length
@@ -289,7 +290,6 @@ def melwav(iceb_length, iceb_width, x_wind, y_wind, sst, conc, dt):
         conc : sea ice concentration
         dt : timestep of the simulation [s]
     """
-    # ref Keghouche's thesis
     Ss = -5 + np.sqrt(32 + 2 * np.sqrt(x_wind**2 + y_wind**2))
     Vsst = (1 / 6.0) * (sst + 2) * Ss
     Vwe = Vsst * 0.5 * (1 + np.cos(np.pi * conc**3)) / 86400  # melting in m/s to Check
@@ -313,7 +313,7 @@ def melwav(iceb_length, iceb_width, x_wind, y_wind, sst, conc, dt):
 def mellat(iceb_length, iceb_width, tempib, salnib, dt):
     # Lateral melting parameterization taken from Kubat et al. 2007
     # An operational iceberg deterioration model
-    """update length and width value according to wave melting
+    """update length and width value according to wave melting. taken from Keghouche et al. 2009
 
     Args:
         iceb_length : iceberg length
@@ -739,7 +739,7 @@ class IcebergDrift(OceanDrift):
     # Configuration
     def __init__(
         self,
-        with_stokes_drift: bool = True,
+        add_stokes_drift: bool = True,
         wave_rad: bool = True,
         grounding: bool = False,
         water_profile: bool = False,
@@ -755,7 +755,7 @@ class IcebergDrift(OceanDrift):
         # to perform some necessary common initialisation tasks:
         super(IcebergDrift, self).__init__(*args, **kwargs)
         self.wave_rad = wave_rad
-        self.with_stokes_drift = with_stokes_drift
+        self.add_stokes_drift = add_stokes_drift
         self.grounding = grounding
         self.water_profile = water_profile
         self.melting = (
@@ -988,7 +988,7 @@ class IcebergDrift(OceanDrift):
         self.deactivate_elements(self.elements.sail < 1, "Iceberg melted")
 
     def roll_over(self, rho_water):
-        """Check the stability criteria of the iceberg and roll it over its smaller side if it's not satisfied
+        """Check the stability criteria of the iceberg and roll it over its smaller side if it's not satisfied. taken from Keghouche et al. 2009 with a correction on the stability criteria taken from Wagner et al. 2017
 
         Args:
             rho_water : sea water volumic mass [kg/m3]
@@ -1030,7 +1030,7 @@ class IcebergDrift(OceanDrift):
             self.melt()
         self.advect_iceberg(
             rho_water,
-            self.with_stokes_drift,
+            self.add_stokes_drift,
             self.wave_rad,
             self.grounding,
             self.water_profile,
