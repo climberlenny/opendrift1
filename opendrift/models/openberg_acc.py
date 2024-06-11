@@ -25,6 +25,15 @@ logger = logging.getLogger(__name__)
 from opendrift.models.oceandrift import OceanDrift, Lagrangian3DArray
 
 
+# GLOBAL CONSTANTS
+rho_air = 1.293
+rho_iceb = 900
+rhosi = 917
+wave_drag_coef = 0.3
+g = 9.81
+csi = 1  # sea ice coefficient of resistance
+
+
 class IcebergObj(Lagrangian3DArray):
     """Extending LagrangianArray with relevant properties for an Iceberg"""
 
@@ -88,6 +97,19 @@ class IcebergObj(Lagrangian3DArray):
 
 
 def water_drag(t, iceb_vel, water_vel, Ao, rho_water, water_drag_coef):
+    """_summary_
+
+    Args:
+        t (_type_): dummy parameter corresponding to the current time
+        iceb_vel (_type_): Iceberg velocity at time t
+        water_vel (_type_): _description_
+        Ao (_type_): _description_
+        rho_water (_type_): _description_
+        water_drag_coef (_type_): _description_
+
+    Returns:
+        _type_: _description_
+    """
     # water velocity
     vxo, vyo = water_vel[0], water_vel[1]
 
@@ -165,6 +187,7 @@ def advect_iceberg_no_acc(f, water_vel, wind_vel):
     no_acc_model_x = (1 - f) * vxo + f * vxa
     no_acc_model_y = (1 - f) * vyo + f * vya
     V = np.array([no_acc_model_x, no_acc_model_y])
+    # TODO logger
     if not np.isfinite(V).all():
         pass
     return V
@@ -173,7 +196,22 @@ def advect_iceberg_no_acc(f, water_vel, wind_vel):
 def sea_ice_force(
     t, iceb_vel, sea_ice_conc, sea_ice_thickness, sea_ice_vel, rhosi, wib, sum_force
 ):
-    csi = 1  # sea ice coefficient of resistance
+    """_summary_
+
+    Args:
+        t (_type_): _description_
+        iceb_vel (_type_): _description_
+        sea_ice_conc (_type_): _description_
+        sea_ice_thickness (_type_): _description_
+        sea_ice_vel (_type_): _description_
+        rhosi (_type_): _description_
+        wib (_type_): _description_
+        sum_force (_type_): _description_
+
+    Returns:
+        _type_: _description_
+    """
+
     ice_x, ice_y = sea_ice_vel
     x_vel, y_vel = iceb_vel[0], iceb_vel[1]
     diff_vel = np.sqrt((ice_x - x_vel) ** 2 + (ice_y - y_vel) ** 2)
@@ -196,11 +234,12 @@ def melwav(lib, wib, uaib, vaib, sst, conc, dt):
     Args:
         lib (_type_): iceberg length
         wib (_type_): iceberg width
-        uaib (_type_): wind speed u component
-        vaib (_type_): wind speed v component
+        uaib (_type_): wind speed x component
+        vaib (_type_): wind speed y component
         sst (_type_): Sea surface temperature
         conc (_type_): sea ice concentration
     """
+    # ref Keghouche's thesis
     Ss = -5 + np.sqrt(32 + 2 * np.sqrt(uaib**2 + vaib**2))
     Vsst = (1 / 6.0) * (sst + 2) * Ss
     Vwe = Vsst * 0.5 * (1 + np.cos(np.pi * conc**3)) / 86400  # melting in m/s to Check
@@ -361,6 +400,8 @@ class IcebergDrift(OceanDrift):
         Returns:
             _type_: _description_
         """
+        # TODO clean non random part
+
         w_mean, w_std = width
         h_mean, h_std = height
         if len(Ca) == 2:
@@ -517,6 +558,102 @@ class IcebergDrift(OceanDrift):
             #     )
         return 0
 
+    def seed_ensemble2(
+        self,
+        width: tuple,
+        height: tuple,
+        Ca: dict = {"min": 0.1, "max": 1.5},
+        ratio: tuple = (2.25, 5, 10),
+        drag_coeff_distribution="beta",
+        **kwargs,
+    ):
+
+        w_mean, w_std = width
+        h_mean, h_std = height
+
+        if drag_coeff_distribution == "beta":
+            a, b, c = ratio
+            ratio = np.random.beta(a, b, 10000) * c
+            Ca_min, Ca_max = Ca
+            Ca = np.random.uniform(0.1, 1.5, 10000)
+            Co = Ca / ratio
+        else:
+            raise ValueError()
+
+        Ens_w = np.abs(np.random.normal(w_mean, w_std, 10_000))
+        Ens_h = np.abs(np.random.normal(h_mean, h_std, 10_000))
+        if drag_coeff_distribution == "normal":
+            Ens_Ca = np.abs(np.random.normal(Ca_mean, Ca_std, 10_000))
+            Ens_Co = np.abs(np.random.normal(Co_mean, Co_std, 10_000))
+        elif drag_coeff_distribution == "uniform":
+            Ens_Ca = np.abs(
+                np.random.uniform(Ca_mean - Ca_std, Ca_mean + Ca_std, 10_000)
+            )
+            Ens_Co = np.abs(
+                np.random.uniform(Co_mean - Co_std, Co_mean + Co_std, 10_000)
+            )
+
+        if drag_coeff_distribution == "normal":
+            # filter Ca and Co to have a normal distribution between min an max values
+            filtered_Ca = Ens_Ca[(Ens_Ca >= Ca_min) & (Ens_Ca <= Ca_max)]
+            while len(filtered_Ca) < 10_000:
+                extra_values = np.random.normal(Ca_mean, Ca_std, 10_000)
+                filtered_Ca = np.concatenate(
+                    (
+                        filtered_Ca,
+                        extra_values[
+                            (extra_values >= Ca_min) & (extra_values <= Ca_max)
+                        ],
+                    )
+                )
+            filtered_Ca = filtered_Ca[:10_000]
+
+            filtered_Co = Ens_Co[(Ens_Co >= Co_min) & (Ens_Co <= Co_max)]
+            while len(filtered_Co) < 10_000:
+                extra_values = np.random.normal(Co_mean, Co_std, 10_000)
+                filtered_Co = np.concatenate(
+                    (
+                        filtered_Co,
+                        extra_values[
+                            (extra_values >= Co_min) & (extra_values <= Co_max)
+                        ],
+                    )
+                )
+            filtered_Co = filtered_Co[:10_000]
+            Ens_Ca, Ens_Co = filtered_Ca, filtered_Co
+
+        rho_iceb = 900
+        rho_water = 1_000
+        alpha = rho_iceb / rho_water
+        crit = np.sqrt(6 * alpha * (1 - alpha))
+
+        combined_array = np.vstack((Ens_w, Ens_h, Ens_Ca, Ens_Co))
+        combined_array = combined_array.T  # shape(10_000,4)
+        np.random.shuffle(combined_array)
+        if "number" in kwargs:
+            number = kwargs["number"]
+        else:
+            number = np.prod(numbers)
+        sampled_array = combined_array[:number]
+        logger.info("seeding ensemble ...")
+        w = sampled_array[:, 0]
+        h = sampled_array[:, 1]
+        ca = sampled_array[:, 2]
+        co = sampled_array[:, 3]
+        l = w
+        draft = h * alpha
+        sail = h - draft
+        self.seed_elements(
+            **kwargs,
+            width=w,
+            length=l,
+            draft=draft,
+            sail=sail,
+            water_drag_coeff=co,
+            wind_drag_coeff=ca,
+        )
+        return 0
+
     # Configuration
     def __init__(
         self,
@@ -547,18 +684,15 @@ class IcebergDrift(OceanDrift):
         )
 
     def advect_iceberg(
-        self, stokes_drift=True, wave_rad=True, grounding=False, water_profile=False
+        self,
+        rho_water=1027,
+        stokes_drift=True,
+        wave_rad=True,
+        grounding=False,
+        water_profile=False,
     ):
-
-        # Constants
-        rho_water = 1027
-        rho_air = 1.293
-        rho_iceb = 900
-        rhosi = 917
-        wave_drag_coef = 0.3
-        g = 9.81
         draft = self.elements.draft
-        height = self.elements.sail + draft
+        # height = self.elements.sail + draft
         length = self.elements.length
         Ao = abs(draft) * length  ### Area_wet
         Aa = self.elements.sail * length  ### Area_dry
@@ -764,7 +898,6 @@ class IcebergDrift(OceanDrift):
         L = self.elements.length
         W = self.elements.width
         H = self.elements.draft + self.elements.sail
-        rho_iceb = 900
         alpha = rho_iceb / rho_water
         crit = np.sqrt(6 * alpha * (1 - alpha))
         W, L = np.min([L, W], axis=0), np.max([L, W], axis=0)
@@ -797,5 +930,9 @@ class IcebergDrift(OceanDrift):
         if self.melting:
             self.melt()
         self.advect_iceberg(
-            self.with_stokes_drift, self.wave_rad, self.grounding, self.water_profile
+            rho_water,
+            self.with_stokes_drift,
+            self.wave_rad,
+            self.grounding,
+            self.water_profile,
         )
