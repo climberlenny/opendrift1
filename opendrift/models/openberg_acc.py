@@ -326,12 +326,6 @@ def mellat(iceb_length, iceb_width, tempib, salnib, dt):
     Tfp = TfS * np.exp(-0.19 * (tempib - TfS))
     deltaT = tempib - Tfp
     deltaT = np.concatenate([2.78 * deltaT, 0.47 * deltaT**2], axis=0)
-    # deltaT = np.concatenate([deltaT, deltaT**2], axis=0) Old
-
-    # coefs = np.concatenate(
-    #     [np.ones_like(tempib) * 2.78, np.ones_like(tempib) * 0.47], axis=0 Old
-    # )
-    # sumVb = np.diag(np.dot(deltaT.T, coefs)) Old
     sumVb = np.nansum(deltaT, axis=0)
 
     # Unit of sumVb [meter/year]
@@ -349,7 +343,8 @@ def mellat(iceb_length, iceb_width, tempib, salnib, dt):
         iceb_width[iceb_length != 0]
         / iceb_length[iceb_length != 0]
         * new_iceb_length[iceb_length != 0]
-    )  # keep the same width/length ratio
+    )
+    # keep the same width/length ratio
     new_iceb_length[new_iceb_length < 0] = 0
     new_iceb_width[new_iceb_width < 0] = 0
     return new_iceb_length, new_iceb_width
@@ -384,20 +379,21 @@ def melbas(
 
     """
 
-    # Temperature at the base of the iceberg
+    # Temperature at the basal layer of the iceberg
     absv = np.sqrt(((x_water_vel - x_iceb_vel) ** 2 + (y_water_vel - y_iceb_vel) ** 2))
     TfS = -0.036 - 0.0499 * salnib - 0.000112 * salnib**2
     Tfp = TfS * 2.71828 ** (-0.19 * (tempib - TfS))
     deltat = tempib - Tfp
 
-    Vf = 0.58 * absv**0.8 * deltat / (iceb_length**0.2)  # / 86400
+    Vf = 0.58 * absv**0.8 * deltat / (iceb_length**0.2)
     Vf = Vf / 86400  # convert in m/s
 
     # Update the depth
     new_iceb_draft = np.zeros_like(iceb_draft)
     new_iceb_draft[iceb_draft != 0] = (
         abs(iceb_draft[iceb_draft != 0]) - Vf[iceb_draft != 0] * dt
-    )  # melt the iceberg base
+    )
+    # melt the iceberg base
     new_iceb_draft[iceb_draft < 0] = 0
 
     return new_iceb_draft, iceb_sail
@@ -783,7 +779,6 @@ class IcebergDrift(OceanDrift):
             water_profile (bool, optional): boolean to decide wether or not we integrate the current velocity over the iceberg draft. Defaults to False.
         """
         draft = self.elements.draft
-        # height = self.elements.sail + draft
         length = self.elements.length
         Ao = abs(draft) * length  ### Area_wet
         Aa = self.elements.sail * length  ### Area_dry
@@ -809,33 +804,29 @@ class IcebergDrift(OceanDrift):
                 ]
             )
         else:
-            # Make the average current that covers the Iceberg's draft
-            # uprof = self.environment_profiles[
-            #     "x_sea_water_velocity"
-            # ]
-            # vprof = self.environment_profiles["y_sea_water_velocity"]
             uprof = self.get_profile_masked("x_sea_water_velocity")
             vprof = self.get_profile_masked("y_sea_water_velocity")
+
             z = self.environment_profiles["z"]
             thickness = -(z[1:] - z[:-1]).reshape((-1, 1))
             mask = uprof.mask
-            # print(z[np.logical_not(mask)], draft)
+
             uprof_mean_inter = (uprof[1:] + uprof[:-1]) / 2
             vprof_mean_inter = (vprof[1:] + vprof[:-1]) / 2
+
             mask = mask[:-1]
-            # uprof_mean_inter[mask] = np.nan
-            # vprof_mean_inter[mask] = np.nan
             thickness_reshaped = np.tile(thickness, (1, mask.shape[1]))
             thickness_reshaped[mask] = np.nan
-            # print(np.nansum(thickness_reshaped * uprof_mean_inter, axis=0))
+
             umean = np.nansum(
                 thickness_reshaped * uprof_mean_inter, axis=0
             ) / np.nansum(thickness_reshaped, axis=0)
             vmean = np.nansum(
                 thickness_reshaped * vprof_mean_inter, axis=0
             ) / np.nansum(thickness_reshaped, axis=0)
-            # print(umean)
+
             water_vel = np.array([umean, vmean])
+
         water_depth = self.environment.sea_floor_depth_below_sea_level
         wind_vel = np.array([self.environment.x_wind, self.environment.y_wind])
         wave_height = self.environment.sea_surface_wave_significant_height
@@ -891,14 +882,16 @@ class IcebergDrift(OceanDrift):
             )
             return 1 / mass * sum_force
 
-        V0 = advect_iceberg_no_acc(f, water_vel, wind_vel)
+        V0 = advect_iceberg_no_acc(
+            f, water_vel, wind_vel
+        )  # approximation of the solution of the dynamic equation for the iceberg velocity
         V0[:, sea_ice_conc >= 0.9] = sea_ice_vel[
             :, sea_ice_conc >= 0.9
         ]  # if this criteria, iceberg moves at sea ice speed
         V0 = V0.flatten()
 
         hwall = draft - water_depth
-        grounded = hwall >= 0  # Check
+        grounded = hwall >= 0
         if any(grounded) and grounding:
             logger.info(
                 f"Grounding : {len(hwall[hwall>0])}, hwall={np.round(hwall[hwall>0],3)}m"
