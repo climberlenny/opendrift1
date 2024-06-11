@@ -97,18 +97,17 @@ class IcebergObj(Lagrangian3DArray):
 
 
 def water_drag(t, iceb_vel, water_vel, Ao, rho_water, water_drag_coef):
-    """_summary_
-
+    """
     Args:
-        t (_type_): dummy parameter corresponding to the current time
-        iceb_vel (_type_): Iceberg velocity at time t
-        water_vel (_type_): _description_
-        Ao (_type_): _description_
-        rho_water (_type_): _description_
-        water_drag_coef (_type_): _description_
+        t : dummy parameter corresponding to the current time
+        iceb_vel : Iceberg velocity at time t
+        water_vel : current velocity [m/s]
+        Ao : iceberg area exposed to the current = length x draft
+        rho_water : water volumic mass [kg/m3]
+        water_drag_coef : Co = drag coefficient applied on the draft of the iceberg
 
     Returns:
-        _type_: _description_
+        water drag force
     """
     # water velocity
     vxo, vyo = water_vel[0], water_vel[1]
@@ -129,6 +128,18 @@ def water_drag(t, iceb_vel, water_vel, Ao, rho_water, water_drag_coef):
 
 
 def wind_drag(t, iceb_vel, wind_vel, Aa, rho_air, wind_drag_coef):
+    """
+    Args:
+        t : dummy parameter corresponding to the current time
+        iceb_vel : Iceberg velocity at time t
+        wind_vel : wind velocity [m/s]
+        Aa : iceberg area exposed to the wind = length x sail
+        rho_air : air volumic mass [kg/m3]
+        wind_drag_coef : Ca = drag coefficient applied on the sail of the iceberg
+
+    Returns:
+        wind drag force
+    """
     # wind velocity
     vxa, vya = wind_vel[0], wind_vel[1]
 
@@ -155,7 +166,20 @@ def wave_radiation_force(
     wave_direction,
     iceb_length,
 ):
+    """
+    Args:
+        t : dummy parameter corresponding to the current time
+        iceb_vel : Iceberg velocity at time t
+        rho_water : water volumic mass [kg/m3]
+        wave_drag_coef : constant
+        g : constant
+        wave_height : wave significant height
+        wave_direction : wave direction
+        iceb_length : iceberg length
 
+    Returns:
+        wave radiation force
+    """
     F_wave_x = (
         0.5
         * rho_water
@@ -180,7 +204,16 @@ def wave_radiation_force(
 
 
 def advect_iceberg_no_acc(f, water_vel, wind_vel):
+    """advect the iceberg as a drifter by approximating its acceleration to be null
 
+    Args:
+        f : wind drift factor
+        water_vel : current velocity
+        wind_vel : wind velocity
+
+    Returns:
+        iceberg velocity approximated
+    """
     vxo, vyo = water_vel[0], water_vel[1]
     vxa, vya = wind_vel[0], wind_vel[1]
 
@@ -203,20 +236,19 @@ def sea_ice_force(
     iceb_width,
     sum_force,
 ):
-    """_summary_
-
+    """
     Args:
-        t (_type_): _description_
-        iceb_vel (_type_): _description_
-        sea_ice_conc (_type_): _description_
-        sea_ice_thickness (_type_): _description_
-        sea_ice_vel (_type_): _description_
-        rhosi (_type_): _description_
-        wib (_type_): _description_
-        sum_force (_type_): _description_
+        t : dummy parameter corresponding to the current time
+        iceb_vel : Iceberg velocity at time t
+        sea_ice_conc : sea ice concentration [%]
+        sea_ice_thickness : sea ice thickness [m]
+        sea_ice_vel : sea ice velocity [m/s]
+        rhosi : sea ice volumic mass [kg/m3]
+        iceb_width : iceberg width
+        sum_force : sum of the other force affecting the iceberg excluding the sea ice force
 
     Returns:
-        _type_: _description_
+        sea ice force
     """
 
     ice_x, ice_y = sea_ice_vel
@@ -249,12 +281,13 @@ def melwav(iceb_length, iceb_width, x_wind, y_wind, sst, conc, dt):
     """update length and width value according to wave melting
 
     Args:
-        iceb_length (_type_): iceberg length
-        iceb_width (_type_): iceberg width
-        x_wind (_type_): wind speed x component
-        y_wind (_type_): wind speed y component
-        sst (_type_): Sea surface temperature
-        conc (_type_): sea ice concentration
+        iceb_length : iceberg length
+        iceb_width : iceberg width
+        x_wind : wind speed x component
+        y_wind : wind speed y component
+        sst : Sea surface temperature
+        conc : sea ice concentration
+        dt : timestep of the simulation [s]
     """
     # ref Keghouche's thesis
     Ss = -5 + np.sqrt(32 + 2 * np.sqrt(x_wind**2 + y_wind**2))
@@ -280,14 +313,14 @@ def melwav(iceb_length, iceb_width, x_wind, y_wind, sst, conc, dt):
 def mellat(iceb_length, iceb_width, tempib, salnib, dt):
     # Lateral melting parameterization taken from Kubat et al. 2007
     # An operational iceberg deterioration model
-    """_summary_
+    """update length and width value according to wave melting
 
     Args:
-        iceb_length (_type_): iceberg length
-        iceb_width (_type_): icebrg width
-        tempib (_type_): far field water temperature vector size nz*N_elements
-        salnib (_type_): water salinity vector size nz*N_elements
-        dt : timestep in second
+        iceb_length : iceberg length
+        iceb_width : iceberg width
+        tempib : far field water temperature vector size nz*N_elements
+        salnib : water salinity vector size nz*N_elements
+        dt : timestep of the simulation [s]
     """
     TfS = -0.036 - 0.0499 * salnib - 0.000112 * salnib**2
     Tfp = TfS * np.exp(-0.19 * (tempib - TfS))
@@ -334,20 +367,21 @@ def melbas(
     y_iceb_vel,
     dt,
 ):
-    """
-    Calculate the surface melt due to forced convection following Kubat et al.
-    (An operational iceberg deterioration Model 2007).
+    """Calculate the surface melt due to forced convection following Kubat et al.
+    (An operational iceberg deterioration Model 2007). The function updates the iceb_draft parameter.
 
-    :param iceb_draft: Iceberg depth (positive value)
-    :param iceb_length: Iceberg length scale
-    :param salnib: Salinity profile in the ocean (array of length nz)
-    :param tempib: Temperature profile in the ocean (array of length nz)
-    :param x_water_vel: Ocean velocity components in the x-direction (array of length nz)
-    :param y_water_vel: Ocean velocity components in the y-direction (array of length nz)
-    :param x_iceb_vel: Iceberg drift velocity in the x-direction
-    :param y_iceb_vel: Iceberg drift velocity in the y-direction
+    Args:
+        iceb_draft (_type_): iceberg draft
+        iceb_sail (_type_): iceberg sail
+        iceb_length (_type_): iceberg length
+        salnib (_type_): sea water salinity at the basal layer
+        tempib (_type_): sea water temperature at the basal layer
+        x_water_vel (_type_): x sea water velocity at the basal layer
+        y_water_vel (_type_): y sea water velocity at the basal layer
+        x_iceb_vel (_type_): x iceberg velocity
+        y_iceb_vel (_type_): y iceberg velocity
+        dt (_type_): timestep of the simulation [s]
 
-    The function updates the iceb_draft parameter.
     """
 
     # Temperature at the base of the iceberg
@@ -400,7 +434,10 @@ class IcebergDrift(OceanDrift):
         """mask profile to keep the data only for the iceberg draft
 
         Args:
-            variable (_type_): _description_
+            variable : the variable you need the profile to be masked
+
+        Returns:
+            The masked profile of the variable for each iceberg of the simulation
         """
         draft = self.elements.draft
         profile = self.environment_profiles[variable]
@@ -411,10 +448,17 @@ class IcebergDrift(OceanDrift):
         return np.ma.masked_array(profile, mask, fill_value=np.nan)
 
     def get_basal_env(self, variable):
+        """get the basal layer of the variable for each iceberg
+
+        Args:
+            variable (_type_): the variable you need the profile to be masked
+
+        """
         profile = self.get_profile_masked(variable)
         last = np.argmin(np.logical_not(profile.mask), axis=0) - 1
         return profile[last, np.arange(profile.shape[1])]
 
+    # TODO Check seed ensemble
     def seed_ensemble(
         self,
         width: tuple,
@@ -729,6 +773,15 @@ class IcebergDrift(OceanDrift):
         grounding=False,
         water_profile=False,
     ):
+        """Main function to advect the iceberg according to the different forcings
+
+        Args:
+            rho_water (int, optional): sea water volumic mass [kg/m3]. Defaults to 1027.
+            stokes_drift (bool, optional): boolean to decide wether or not we add the stokes drift to the current velocity. Defaults to True.
+            wave_rad (bool, optional): boolean to decide wether or not we add the wave radiation forcing. Defaults to True.
+            grounding (bool, optional): boolean to decide wether or not we take into account of the grounding of the iceberg. Defaults to False.
+            water_profile (bool, optional): boolean to decide wether or not we integrate the current velocity over the iceberg draft. Defaults to False.
+        """
         draft = self.elements.draft
         # height = self.elements.sail + draft
         length = self.elements.length
@@ -881,6 +934,8 @@ class IcebergDrift(OceanDrift):
         self.elements.iceb_x_velocity, self.elements.iceb_y_velocity = Vx, Vy
 
     def melt(self):
+        """apply the different melting effects to the iceberg"""
+
         # loading the required variables :
         x_wind = self.environment.x_wind
         y_wind = self.environment.y_wind
@@ -933,6 +988,11 @@ class IcebergDrift(OceanDrift):
         self.deactivate_elements(self.elements.sail < 1, "Iceberg melted")
 
     def roll_over(self, rho_water):
+        """Check the stability criteria of the iceberg and roll it over its smaller side if it's not satisfied
+
+        Args:
+            rho_water : sea water volumic mass [kg/m3]
+        """
         L = self.elements.length
         W = self.elements.width
         H = self.elements.draft + self.elements.sail
@@ -955,6 +1015,7 @@ class IcebergDrift(OceanDrift):
         self.elements.sail = sailib
         self.elements.draft = depthib
 
+    # TODO check if prepare run is useless
     def prepare_run(self):
         self.profiles_depth = self.elements_scheduled.draft.max()
         logger.info(f"Max Icebergs draft is : {self.profiles_depth}")
