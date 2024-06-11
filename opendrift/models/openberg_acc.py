@@ -221,9 +221,10 @@ def advect_iceberg_no_acc(f, water_vel, wind_vel):
     no_acc_model_x = (1 - f) * vxo + f * vxa
     no_acc_model_y = (1 - f) * vyo + f * vya
     V = np.array([no_acc_model_x, no_acc_model_y])
-    # TODO logger
     if not np.isfinite(V).all():
-        pass
+        logger.error(
+            "infinite value in approximated iceberg velocity : check the wind drift factor f values"
+        )
     return V
 
 
@@ -738,7 +739,7 @@ class IcebergDrift(OceanDrift):
         add_stokes_drift: bool = True,
         wave_rad: bool = True,
         grounding: bool = False,
-        water_profile: bool = False,
+        vertical_profile: bool = False,
         melting: bool = False,
         choose_melting: dict[bool] = {"wave": True, "lateral": True, "basal": True},
         *args,
@@ -753,7 +754,7 @@ class IcebergDrift(OceanDrift):
         self.wave_rad = wave_rad
         self.add_stokes_drift = add_stokes_drift
         self.grounding = grounding
-        self.water_profile = water_profile
+        self.vertical_profile = vertical_profile
         self.melting = (
             melting  # boolean parameter to decide wether or not the iceberg melt
         )
@@ -767,7 +768,7 @@ class IcebergDrift(OceanDrift):
         stokes_drift=True,
         wave_rad=True,
         grounding=False,
-        water_profile=False,
+        vertical_profile=False,
     ):
         """Main function to advect the iceberg according to the different forcings
 
@@ -776,7 +777,7 @@ class IcebergDrift(OceanDrift):
             stokes_drift (bool, optional): boolean to decide wether or not we add the stokes drift to the current velocity. Defaults to True.
             wave_rad (bool, optional): boolean to decide wether or not we add the wave radiation forcing. Defaults to True.
             grounding (bool, optional): boolean to decide wether or not we take into account of the grounding of the iceberg. Defaults to False.
-            water_profile (bool, optional): boolean to decide wether or not we integrate the current velocity over the iceberg draft. Defaults to False.
+            vertical_profile (bool, optional): boolean to decide wether or not we integrate the current velocity over the iceberg draft. Defaults to False.
         """
         draft = self.elements.draft
         length = self.elements.length
@@ -792,7 +793,7 @@ class IcebergDrift(OceanDrift):
         f = np.sqrt(k) / (1 + np.sqrt(k))
 
         # environment
-        if not water_profile:  # TODO change in vert_profile
+        if not vertical_profile:
             water_vel = np.array(
                 [
                     self.environment.x_sea_water_velocity
@@ -855,6 +856,7 @@ class IcebergDrift(OceanDrift):
             iceb_length,
             mass,
         ):
+            """Function required by solve_ivp. the t and iceb_vel parameters are required by solve_ivp. Don't delete them"""
             sum_force = (
                 water_drag(t, iceb_vel, water_vel, Ao, rho_water, water_drag_coef)
                 + wind_drag(t, iceb_vel, wind_vel, Aa, rho_air, wind_drag_coef)
@@ -1026,5 +1028,5 @@ class IcebergDrift(OceanDrift):
             self.add_stokes_drift,
             self.wave_rad,
             self.grounding,
-            self.water_profile,
+            self.vertical_profile,
         )
