@@ -458,20 +458,14 @@ class IcebergDrift(OceanDrift):
     # TODO Check seed ensemble
     def seed_ensemble(
         self,
-        width: tuple,
-        height: tuple,
         Ca: tuple,
         Co: tuple,
-        numbers: tuple = (10, 10, 10, 10, 1),
-        random=True,
         drag_coeff_distribution="normal",
         **kwargs,
     ):
         """_summary_
 
         Args:
-            width (tuple): (mean,std)
-            height (tuple): (mean,std)
             Ca (tuple): (min,max,mean,std)
             Co (tuple): (min,max,mean,std)
             numbers (tuple, optional): number of distinct member per param. Defaults to (10,10,10,10,10).
@@ -480,9 +474,6 @@ class IcebergDrift(OceanDrift):
             _type_: _description_
         """
         # TODO clean non random part
-
-        w_mean, w_std = width
-        h_mean, h_std = height
         if len(Ca) == 2:
             Ca_min, Ca_max = 0.5, 2.5
             logger.debug(
@@ -512,33 +503,16 @@ class IcebergDrift(OceanDrift):
                 f"Co mean value too small compare to min : mean={Co_mean} , min={Co_min}"
             )
 
-        if random:
-            Ens_w = np.abs(np.random.normal(w_mean, w_std, 10_000))
-            Ens_h = np.abs(np.random.normal(h_mean, h_std, 10_000))
-            if drag_coeff_distribution == "normal":
-                Ens_Ca = np.abs(np.random.normal(Ca_mean, Ca_std, 10_000))
-                Ens_Co = np.abs(np.random.normal(Co_mean, Co_std, 10_000))
-            elif drag_coeff_distribution == "uniform":
-                Ens_Ca = np.abs(
-                    np.random.uniform(Ca_mean - Ca_std, Ca_mean + Ca_std, 10_000)
-                )
-                Ens_Co = np.abs(
-                    np.random.uniform(Co_mean - Co_std, Co_mean + Co_std, 10_000)
-                )
-        else:
-            Ens_w = np.abs(np.random.normal(w_mean, w_std, numbers[0]))
-            Ens_h = np.abs(np.random.normal(h_mean, h_std, numbers[1]))
-            if drag_coeff_distribution == "normal":
-                Ens_Ca = np.abs(np.random.normal(Ca_mean, Ca_std, numbers[2]))
-                Ens_Co = np.abs(np.random.normal(Co_mean, Co_std, numbers[3]))
-            elif drag_coeff_distribution == "uniform":
-                Ens_Ca = np.abs(
-                    np.random.uniform(Ca_mean - Ca_std, Ca_mean + Ca_std, numbers[2])
-                )
-                Ens_Co = np.abs(
-                    np.random.uniform(Co_mean - Co_std, Co_mean + Co_std, numbers[3])
-                )
-
+        if drag_coeff_distribution == "normal":
+            Ens_Ca = np.abs(np.random.normal(Ca_mean, Ca_std, 10_000))
+            Ens_Co = np.abs(np.random.normal(Co_mean, Co_std, 10_000))
+        elif drag_coeff_distribution == "uniform":
+            Ens_Ca = np.abs(
+                np.random.uniform(Ca_mean - Ca_std, Ca_mean + Ca_std, 10_000)
+            )
+            Ens_Co = np.abs(
+                np.random.uniform(Co_mean - Co_std, Co_mean + Co_std, 10_000)
+            )
         if drag_coeff_distribution == "normal":
             # filter Ca and Co to have a normal distribution between min an max values
             filtered_Ca = Ens_Ca[(Ens_Ca >= Ca_min) & (Ens_Ca <= Ca_max)]
@@ -567,74 +541,22 @@ class IcebergDrift(OceanDrift):
                 )
             filtered_Co = filtered_Co[:10_000]
             Ens_Ca, Ens_Co = filtered_Ca, filtered_Co
-
-        rho_iceb = 900
-        rho_water = 1_000
-        alpha = rho_iceb / rho_water
-        crit = np.sqrt(6 * alpha * (1 - alpha))
-
-        ### Roll over stability : we decide to keep it random whitout correction. Uncomment to add the correction before running the model
-        # Ens_h[Ens_h > Ens_w / crit] = (
-        #     Ens_h[Ens_h > Ens_w / crit] / 2
-        # )  # Roll over stability
-        if not random:
-            Ens_tot = np.array(list(itertools.product(Ens_w, Ens_h, Ens_Ca, Ens_Co)))
-            logger.info("seeding ensemble ...")
-            for member in Ens_tot:
-                w, h, ca, co = member
-                l = w
-                draft = h * alpha
-                sail = h - draft
-                self.seed_elements(
-                    **kwargs,
-                    number=numbers[-1],
-                    width=w,
-                    length=l,
-                    draft=draft,
-                    sail=sail,
-                    water_drag_coeff=co,
-                    wind_drag_coeff=ca,
-                )
+        combined_array = np.vstack((Ens_Ca, Ens_Co))
+        combined_array = combined_array.T  # shape(10_000,2)
+        np.random.shuffle(combined_array)
+        if "number" in kwargs:
+            number = kwargs["number"]
         else:
-            combined_array = np.vstack((Ens_w, Ens_h, Ens_Ca, Ens_Co))
-            combined_array = combined_array.T  # shape(10_000,4)
-            np.random.shuffle(combined_array)
-            if "number" in kwargs:
-                number = kwargs["number"]
-            else:
-                number = np.prod(numbers)
-            sampled_array = combined_array[:number]
-            logger.info("seeding ensemble ...")
-            w = sampled_array[:, 0]
-            h = sampled_array[:, 1]
-            ca = sampled_array[:, 2]
-            co = sampled_array[:, 3]
-            l = w
-            draft = h * alpha
-            sail = h - draft
-            self.seed_elements(
-                **kwargs,
-                width=w,
-                length=l,
-                draft=draft,
-                sail=sail,
-                water_drag_coeff=co,
-                wind_drag_coeff=ca,
-            )
-            # for member in sampled_array:
-            #     w, h, ca, co = member
-            #     l = w
-            #     draft = h * alpha
-            #     sail = h - draft
-            #     self.seed_elements(
-            #         **kwargs,
-            #         width=w,
-            #         length=l,
-            #         draft=draft,
-            #         sail=sail,
-            #         water_drag_coeff=co,
-            #         wind_drag_coeff=ca,
-            #     )
+            number = 100
+        sampled_array = combined_array[:number]
+        logger.info("seeding ensemble ...")
+        ca = sampled_array[:, 0]
+        co = sampled_array[:, 1]
+        self.seed_elements(
+            **kwargs,
+            water_drag_coeff=co,
+            wind_drag_coeff=ca,
+        )
         return 0
 
     def seed_ensemble2(
@@ -816,6 +738,12 @@ class IcebergDrift(OceanDrift):
             vprof_mean_inter = (vprof[1:] + vprof[:-1]) / 2
 
             mask = mask[:-1]
+            rows, cols = np.where(mask == False)
+            rev_rows = rows[::-1]
+            rev_cols = cols[::-1]
+            unique_cols, rev_last_false_indices = np.unique(rev_cols, return_index=True)
+            last_false_indices = len(rows) - 1 - rev_last_false_indices
+            mask[rows[last_false_indices], cols[last_false_indices]] = True
             thickness_reshaped = np.tile(thickness, (1, mask.shape[1]))
             thickness_reshaped[mask] = np.nan
 
