@@ -439,6 +439,9 @@ class IcebergDrift(OceanDrift):
         draft = self.elements.draft
         profile = self.environment_profiles[variable]
         z = self.environment_profiles["z"]
+        if len(z) == 1:
+            if z == np.array([None]):
+                z = np.zeros_like(z)
         mask = draft[:, np.newaxis] < -z
         mask = mask.T
         mask[np.argmax(mask, axis=0), np.arange(mask.shape[1])] = False
@@ -554,102 +557,6 @@ class IcebergDrift(OceanDrift):
         co = sampled_array[:, 1]
         self.seed_elements(
             **kwargs,
-            water_drag_coeff=co,
-            wind_drag_coeff=ca,
-        )
-        return 0
-
-    def seed_ensemble2(
-        self,
-        width: tuple,
-        height: tuple,
-        Ca: dict = {"min": 0.1, "max": 1.5},
-        ratio: tuple = (2.25, 5, 10),
-        drag_coeff_distribution="beta",
-        **kwargs,
-    ):
-
-        w_mean, w_std = width
-        h_mean, h_std = height
-
-        if drag_coeff_distribution == "beta":
-            a, b, c = ratio
-            ratio = np.random.beta(a, b, 10000) * c
-            Ca_min, Ca_max = Ca
-            Ca = np.random.uniform(0.1, 1.5, 10000)
-            Co = Ca / ratio
-        else:
-            raise ValueError()
-
-        Ens_w = np.abs(np.random.normal(w_mean, w_std, 10_000))
-        Ens_h = np.abs(np.random.normal(h_mean, h_std, 10_000))
-        if drag_coeff_distribution == "normal":
-            Ens_Ca = np.abs(np.random.normal(Ca_mean, Ca_std, 10_000))
-            Ens_Co = np.abs(np.random.normal(Co_mean, Co_std, 10_000))
-        elif drag_coeff_distribution == "uniform":
-            Ens_Ca = np.abs(
-                np.random.uniform(Ca_mean - Ca_std, Ca_mean + Ca_std, 10_000)
-            )
-            Ens_Co = np.abs(
-                np.random.uniform(Co_mean - Co_std, Co_mean + Co_std, 10_000)
-            )
-
-        if drag_coeff_distribution == "normal":
-            # filter Ca and Co to have a normal distribution between min an max values
-            filtered_Ca = Ens_Ca[(Ens_Ca >= Ca_min) & (Ens_Ca <= Ca_max)]
-            while len(filtered_Ca) < 10_000:
-                extra_values = np.random.normal(Ca_mean, Ca_std, 10_000)
-                filtered_Ca = np.concatenate(
-                    (
-                        filtered_Ca,
-                        extra_values[
-                            (extra_values >= Ca_min) & (extra_values <= Ca_max)
-                        ],
-                    )
-                )
-            filtered_Ca = filtered_Ca[:10_000]
-
-            filtered_Co = Ens_Co[(Ens_Co >= Co_min) & (Ens_Co <= Co_max)]
-            while len(filtered_Co) < 10_000:
-                extra_values = np.random.normal(Co_mean, Co_std, 10_000)
-                filtered_Co = np.concatenate(
-                    (
-                        filtered_Co,
-                        extra_values[
-                            (extra_values >= Co_min) & (extra_values <= Co_max)
-                        ],
-                    )
-                )
-            filtered_Co = filtered_Co[:10_000]
-            Ens_Ca, Ens_Co = filtered_Ca, filtered_Co
-
-        rho_iceb = 900
-        rho_water = 1_000
-        alpha = rho_iceb / rho_water
-        crit = np.sqrt(6 * alpha * (1 - alpha))
-
-        combined_array = np.vstack((Ens_w, Ens_h, Ens_Ca, Ens_Co))
-        combined_array = combined_array.T  # shape(10_000,4)
-        np.random.shuffle(combined_array)
-        if "number" in kwargs:
-            number = kwargs["number"]
-        else:
-            number = np.prod(numbers)
-        sampled_array = combined_array[:number]
-        logger.info("seeding ensemble ...")
-        w = sampled_array[:, 0]
-        h = sampled_array[:, 1]
-        ca = sampled_array[:, 2]
-        co = sampled_array[:, 3]
-        l = w
-        draft = h * alpha
-        sail = h - draft
-        self.seed_elements(
-            **kwargs,
-            width=w,
-            length=l,
-            draft=draft,
-            sail=sail,
             water_drag_coeff=co,
             wind_drag_coeff=ca,
         )
