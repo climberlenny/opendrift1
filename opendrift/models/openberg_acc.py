@@ -728,8 +728,8 @@ class IcebergDrift(OceanDrift):
         V0 = V0.flatten()
 
         hwall = draft - water_depth
-        grounded = hwall >= 0
-        if any(grounded) and grounding:
+        grounded = np.logical_and(hwall >= 0, grounding)
+        if any(grounded):
             logger.info(
                 f"Grounding : {len(hwall[hwall>0])}, hwall={np.round(hwall[hwall>0],3)}m"
             )
