@@ -112,7 +112,6 @@ def water_drag(t, iceb_vel, water_vel, Ao, rho_water, water_drag_coef):
     """
     # water velocity
     vxo, vyo = water_vel[0], water_vel[1]
-
     # iceberg velocity
     x_vel, y_vel = iceb_vel[0], iceb_vel[1]
 
@@ -692,6 +691,10 @@ class IcebergDrift(OceanDrift):
             mass,
         ):
             """Function required by solve_ivp. the t and iceb_vel parameters are required by solve_ivp. Don't delete them"""
+
+            iceb_vel = iceb_vel.reshape(
+                (2, -1)
+            )  # very important to keep this shape to stay consistant
             sum_force = (
                 water_drag(t, iceb_vel, water_vel, Ao, rho_water, water_drag_coef)
                 + wind_drag(t, iceb_vel, wind_vel, Aa, rho_air, wind_drag_coef)
@@ -725,7 +728,7 @@ class IcebergDrift(OceanDrift):
         V0[:, sea_ice_conc >= 0.9] = sea_ice_vel[
             :, sea_ice_conc >= 0.9
         ]  # if this criteria, iceberg moves at sea ice speed
-        V0 = V0.flatten()
+        V0 = V0.flatten()  # V0 needs to be 1D
 
         hwall = draft - water_depth
         grounded = np.logical_and(hwall >= 0, grounding)
@@ -754,7 +757,11 @@ class IcebergDrift(OceanDrift):
                 mass,
             ),
             vectorized=True,
-            t_eval=np.array([self.time_step.total_seconds()]),
+            t_eval=np.array(
+                [
+                    self.time_step.total_seconds(),
+                ]
+            ),
         )
         V = sol.y.reshape((2, -1))
         Vx, Vy = V[0], V[1]
