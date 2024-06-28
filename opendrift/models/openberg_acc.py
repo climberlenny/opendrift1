@@ -32,6 +32,7 @@ rhosi = 917
 wave_drag_coef = 0.3
 g = 9.81
 csi = 1  # sea ice coefficient of resistance
+omega = 7.2921e-5
 
 
 class IcebergObj(Lagrangian3DArray):
@@ -275,6 +276,15 @@ def sea_ice_force(
     F_ice_x[sea_ice_conc >= 0.9] = -force_x[sea_ice_conc >= 0.9]
     F_ice_y[sea_ice_conc >= 0.9] = -force_y[sea_ice_conc >= 0.9]
     return np.array([F_ice_x, F_ice_y])
+
+
+def coriolis(iceb_vel, mass, lat):
+    f = 2 * omega * np.sin(lat)
+    assert len(iceb_vel) == 2
+    x_vel, y_vel = iceb_vel[0], iceb_vel[1]
+    Fc_x = mass * f * y_vel
+    Fc_y = -mass * f * x_vel
+    return np.array([Fc_x, Fc_y])
 
 
 # MELTING ###################################################################
@@ -570,6 +580,7 @@ class IcebergDrift(OceanDrift):
         vertical_profile: bool = False,
         melting: bool = False,
         choose_melting: dict[bool] = {"wave": True, "lateral": True, "basal": True},
+        add_coriolis: bool = False,
         *args,
         **kwargs,
     ):
@@ -589,6 +600,7 @@ class IcebergDrift(OceanDrift):
         self.choose_melting = (
             choose_melting  # boolean dictionnary to decide how the iceberg melt
         )
+        self.add_coriolis = add_coriolis
 
     def advect_iceberg(
         self,
@@ -597,6 +609,7 @@ class IcebergDrift(OceanDrift):
         wave_rad=True,
         grounding=False,
         vertical_profile=False,
+        add_coriolis=False,
     ):
         """Main function to advect the iceberg according to the different forcings
 
@@ -689,6 +702,7 @@ class IcebergDrift(OceanDrift):
             g,
             iceb_length,
             mass,
+            lat,
         ):
             """Function required by solve_ivp. the t and iceb_vel parameters are required by solve_ivp. Don't delete them"""
 
@@ -709,6 +723,7 @@ class IcebergDrift(OceanDrift):
                     wave_direction,
                     iceb_length,
                 )
+                + int(add_coriolis) * coriolis(iceb_vel, mass, lat)
             )
             sum_force = sum_force + sea_ice_force(
                 t,
@@ -755,6 +770,7 @@ class IcebergDrift(OceanDrift):
                 g,
                 self.elements.length,
                 mass,
+                self.elements.lat,
             ),
             vectorized=True,
             t_eval=np.array(
@@ -871,4 +887,5 @@ class IcebergDrift(OceanDrift):
             self.wave_rad,
             self.grounding,
             self.vertical_profile,
+            self.add_coriolis,
         )
